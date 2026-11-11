@@ -29,6 +29,29 @@ public struct PlacedTile: Hashable, Sendable, Codable {
     public func looksLike(_ other: PlacedTile) -> Bool {
         Set(oriented.pipes) == Set(other.oriented.pipes)
     }
+
+    // Only the source tile and how it is placed are stored. The oriented
+    // tile and its edge code are worked out again on loading, so a file
+    // cannot hold a placement that disagrees with itself.
+    private enum CodingKeys: String, CodingKey {
+        case source, transform, isGenerated
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            try container.decode(Tile.self, forKey: .source),
+            transform: try container.decode(TileTransform.self, forKey: .transform),
+            isGenerated: try container.decodeIfPresent(Bool.self, forKey: .isGenerated) ?? false
+        )
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(source, forKey: .source)
+        try container.encode(transform, forKey: .transform)
+        try container.encode(isGenerated, forKey: .isGenerated)
+    }
 }
 
 /// Tiles laid out on a hexagonal region of the grid.
@@ -48,6 +71,43 @@ public struct Maze: Hashable, Sendable, Codable {
     public init(portsPerEdge: Int, radius: Int) {
         self.portsPerEdge = portsPerEdge
         self.radius = radius
+    }
+
+    // Stored as a plain list of cells, in a stable order. Anything in a file
+    // that could not be part of this maze (a cell outside the region, a tile
+    // with the wrong port count, an opening off the outline) is dropped.
+    private enum CodingKeys: String, CodingKey {
+        case portsPerEdge, radius, cells, openings
+    }
+
+    private struct StoredCell: Codable {
+        var coord: HexCoord
+        var tile: PlacedTile
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            portsPerEdge: try container.decode(Int.self, forKey: .portsPerEdge),
+            radius: try container.decode(Int.self, forKey: .radius)
+        )
+        for cell in try container.decode([StoredCell].self, forKey: .cells)
+        where contains(cell.coord) && cell.tile.source.portsPerEdge == portsPerEdge {
+            cells[cell.coord] = cell.tile
+        }
+        let stored = try container.decodeIfPresent([PortRef].self, forKey: .openings) ?? []
+        openings = Set(stored.filter(isOnOutline))
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(portsPerEdge, forKey: .portsPerEdge)
+        try container.encode(radius, forKey: .radius)
+        let stored = cells.keys.sorted().compactMap { coord in
+            cells[coord].map { StoredCell(coord: coord, tile: $0) }
+        }
+        try container.encode(stored, forKey: .cells)
+        try container.encode(openings.sorted { ($0.coord, $0.port) < ($1.coord, $1.port) }, forKey: .openings)
     }
 
     public func contains(_ coord: HexCoord) -> Bool {

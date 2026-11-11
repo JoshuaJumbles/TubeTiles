@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import TubeKit
 
@@ -114,5 +115,50 @@ private func openMaze(seed: UInt64, symmetry: Symmetry = .none, radius: Int = 3)
         let openIndex = maze.paths.paths.firstIndex { !$0.isClosed }! + 1
         let wall = svg.components(separatedBy: "\n").first { $0.contains(#"id="wall-\#(openIndex)""#) }
         #expect(wall?.contains(" Z\"") == false)
+    }
+}
+
+@Suite struct MazeStorageTests {
+    @Test func aMazeSurvivesSavingAndLoading() throws {
+        var (maze, generator) = openMaze(seed: 2, symmetry: .mirror)
+        var random = SeededGenerator(seed: 2)
+        LoopMerger(generator: generator).mergeAll(&maze, using: &random)
+
+        let data = try JSONEncoder().encode(maze)
+        let loaded = try JSONDecoder().decode(Maze.self, from: data)
+        #expect(loaded == maze)
+        #expect(loaded.openings == maze.openings)
+        #expect(loaded.isSealed)
+        #expect(loaded.paths.paths.count == maze.paths.paths.count)
+        #expect(loaded.weave().conflicts == 0)
+    }
+
+    @Test func savingIsStableAndCompact() throws {
+        let (maze, _) = openMaze(seed: 2)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let first = try encoder.encode(maze)
+        let second = try encoder.encode(try JSONDecoder().decode(Maze.self, from: first))
+        #expect(first == second)
+        // The oriented copy of each tile is not stored.
+        let text = String(decoding: first, as: UTF8.self)
+        #expect(!text.contains("oriented"))
+    }
+
+    @Test func loadingDropsWhatCannotBelong() throws {
+        let json = """
+        {"portsPerEdge":4,"radius":1,"openings":[{"coord":{"q":0,"r":0},"port":{"edge":0,"slot":1}}],
+         "cells":[
+          {"coord":{"q":5,"r":5},"tile":{"source":{"id":"00000000-0000-0000-0000-000000000001","portsPerEdge":4,"pipes":[]},"transform":{"turns":0,"mirrored":false}}},
+          {"coord":{"q":0,"r":0},"tile":{"source":{"id":"00000000-0000-0000-0000-000000000002","portsPerEdge":3,"pipes":[]},"transform":{"turns":0,"mirrored":false}}},
+          {"coord":{"q":0,"r":0},"tile":{"source":{"id":"00000000-0000-0000-0000-000000000003","portsPerEdge":4,"pipes":[]},"transform":{"turns":7,"mirrored":false}}}
+         ]}
+        """
+        let maze = try JSONDecoder().decode(Maze.self, from: Data(json.utf8))
+        // Outside the region and wrong port count are dropped; the opening
+        // is not on the outline.
+        #expect(maze.cells.count == 1)
+        #expect(maze.cells[.origin]?.transform.turns == 1)
+        #expect(maze.openings.isEmpty)
     }
 }

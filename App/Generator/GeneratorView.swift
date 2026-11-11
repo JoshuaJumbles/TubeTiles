@@ -5,6 +5,9 @@ import TubeKit
 /// stacked on narrow ones.
 struct GeneratorView: View {
     var model: GeneratorModel
+    var archive: MazeArchive
+
+    @State private var showsMazes = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -49,6 +52,21 @@ struct GeneratorView: View {
             MazeCanvas(model: model)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .topLeading) {
+            Button { showsMazes = true } label: {
+                Image(systemName: "folder")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(TilePalette.face))
+                    .foregroundStyle(Color.primary)
+            }
+            .accessibilityLabel("Saved mazes")
+            .padding(.top, 6)
+            .padding(.leading, 10)
+        }
+        .sheet(isPresented: $showsMazes) {
+            MazesView(model: model, archive: archive)
+        }
         .overlay(alignment: .topTrailing) {
             ShareLink(item: model.drawing, preview: SharePreview("TubeTiles maze.svg")) {
                 Image(systemName: "square.and.arrow.up")
@@ -220,5 +238,6 @@ private struct GeneratorPanel: View {
 }
 
 #Preview {
-    GeneratorView(model: GeneratorModel(library: SampleData.library()))
+    let archive = MazeArchive(persists: false)
+    GeneratorView(model: GeneratorModel(library: SampleData.library(), archive: archive), archive: archive)
 }

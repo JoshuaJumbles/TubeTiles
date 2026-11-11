@@ -17,6 +17,20 @@ public struct TileTransform: Hashable, Sendable, Codable, CaseIterable {
         self.mirrored = mirrored
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case turns, mirrored
+    }
+
+    /// Loads through the ordinary initialiser, so turns are brought into
+    /// range whatever a file says.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            turns: try container.decode(Int.self, forKey: .turns),
+            mirrored: try container.decode(Bool.self, forKey: .mirrored)
+        )
+    }
+
     public static let identity = TileTransform()
 
     public static let allCases: [TileTransform] = [false, true].flatMap { mirrored in

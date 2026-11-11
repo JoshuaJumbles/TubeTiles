@@ -21,12 +21,17 @@ struct RootView: View {
     @State private var library: LibraryModel
     @State private var editor: EditorModel
     @State private var generator: GeneratorModel
+    @State private var archive: MazeArchive
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         let library = SampleData.isRequested ? SampleData.library() : LibraryModel()
         _library = State(initialValue: library)
         _editor = State(initialValue: EditorModel(library: library))
-        _generator = State(initialValue: GeneratorModel(library: library))
+        // Sample mode keeps its mazes in memory, like its tiles.
+        let archive = MazeArchive(persists: !SampleData.isRequested)
+        _archive = State(initialValue: archive)
+        _generator = State(initialValue: GeneratorModel(library: library, archive: archive))
     }
 
     var body: some View {
@@ -42,9 +47,13 @@ struct RootView: View {
             .tabItem { Label("Library", systemImage: "square.grid.2x2") }
             .tag(Screen.library)
 
-            GeneratorView(model: generator)
+            GeneratorView(model: generator, archive: archive)
                 .tabItem { Label("Generator", systemImage: "circle.hexagongrid") }
                 .tag(Screen.generator)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Do not wait for the autosave delay when the app is leaving.
+            if phase != .active { generator.writeWorkingCopy() }
         }
     }
 }
