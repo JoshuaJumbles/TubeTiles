@@ -9,19 +9,6 @@ struct MazeCanvas: View {
     private static let grid = Color(white: 0.25).opacity(0.12)
     private static let open = Color(red: 0.85, green: 0.45, blue: 0.10)
 
-    /// The colours for one path. A loop keeps its colour as long as its
-    /// first pipe stays put, so merging elsewhere does not reshuffle the rest.
-    /// Kept loops are drawn plain, and loose strands grey.
-    private static func palette(for path: MazePath?, isKept: Bool) -> TilePalette {
-        guard let path, let first = path.steps.first, !isKept else { return .standard }
-        guard path.isClosed else {
-            return TilePalette(tube: Color(white: 0.86))
-        }
-        let seed = first.coord.q * 73 + first.coord.r * 151 + first.pipe.a.edge * 31 + first.pipe.a.slot * 17
-        let hue = (Double(seed) * 0.618034).truncatingRemainder(dividingBy: 1)
-        return TilePalette(tube: Color(hue: hue < 0 ? hue + 1 : hue, saturation: 0.45, brightness: 0.97))
-    }
-
     /// How the grid maps into the view: where the origin cell sits and how
     /// many points one tile unit is.
     private struct Layout {
@@ -64,6 +51,7 @@ struct MazeCanvas: View {
             let showsPaths = model.showsPaths
             let paths = model.paths
             let keptPaths = model.keptPaths(in: paths)
+            let weave = model.weave
 
             Canvas { context, _ in
                 for coord in maze.coords {
@@ -71,22 +59,22 @@ struct MazeCanvas: View {
                     let hex = TileRenderer.hexPath(in: frame)
                     if let placed = maze.cells[coord] {
                         context.fill(hex, with: .color(TilePalette.face))
-                        if showsPaths {
-                            var clipped = context
-                            clipped.clip(to: hex)
-                            let style = TileStyle(portsPerEdge: maze.portsPerEdge)
-                            for pipe in placed.oriented.pipes {
-                                let index = paths.index(of: pipe, at: coord)
-                                TileRenderer.draw(
-                                    pipe, style: style, in: frame, context: &clipped,
-                                    palette: Self.palette(
-                                        for: index.map { paths.paths[$0] },
-                                        isKept: index.map(keptPaths.contains) ?? false
-                                    )
-                                )
-                            }
-                        } else {
-                            TileRenderer.draw(placed.oriented, in: frame, context: &context)
+                        var clipped = context
+                        clipped.clip(to: hex)
+                        let style = TileStyle(portsPerEdge: maze.portsPerEdge)
+                        func palette(_ pipe: Pipe) -> TilePalette {
+                            guard showsPaths, let index = paths.index(of: pipe, at: coord) else { return .standard }
+                            return PathTint.palette(for: paths.paths[index], isKept: keptPaths.contains(index))
+                        }
+                        for pipe in placed.oriented.pipes {
+                            TileRenderer.draw(pipe, style: style, in: frame, context: &clipped, palette: palette(pipe))
+                        }
+                        // Stacking order alone cannot weave, so each crossing
+                        // gets the upper pipe redrawn across it.
+                        for crossing in weave.crossings(at: coord) {
+                            TileRenderer.drawBridge(
+                                crossing, style: style, in: frame, context: &clipped, palette: palette(crossing.over)
+                            )
                         }
                     } else {
                         context.fill(hex, with: .color(Self.emptyCell))
