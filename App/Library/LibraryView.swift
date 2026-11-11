@@ -75,9 +75,7 @@ struct LibraryView: View {
                 }
             }
             .background(TilePalette.paper.ignoresSafeArea())
-            // The paper backdrop is light in both appearances, so the screen
-            // draws its own dark title instead of the system one, which
-            // would turn white in dark mode.
+            // The title is drawn in the page so it scrolls with the tiles.
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
         }
@@ -134,7 +132,7 @@ struct LibraryView: View {
 
                 if groups.isEmpty {
                     Text("No tiles match this filter.")
-                        .foregroundStyle(Color(white: 0.35))
+                        .foregroundStyle(Color.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 40)
                 }
@@ -173,7 +171,7 @@ struct LibraryView: View {
                 TileView(tile: tile)
                 Text(tile.edgeCode.description)
                     .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(Color(white: 0.35))
+                    .foregroundStyle(Color.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
@@ -186,15 +184,15 @@ struct LibraryView: View {
         return VStack(alignment: .leading, spacing: 2) {
             Text("Library")
                 .font(.largeTitle.bold())
-                .foregroundStyle(Color(white: 0.1))
+                .foregroundStyle(Color.primary)
                 .padding(.bottom, 8)
                 .accessibilityAddTraits(.isHeader)
             Text("^[\(tiles.tiles.count) tile](inflect: true) in ^[\(total) profile](inflect: true)")
                 .font(.headline)
-                .foregroundStyle(Color(white: 0.15))
+                .foregroundStyle(Color.primary)
             Text("\(tiles.portsPerEdge) ports per edge" + (filter == .all ? "" : " · showing \(shownGroups)"))
                 .font(.subheadline)
-                .foregroundStyle(Color(white: 0.35))
+                .foregroundStyle(Color.secondary)
         }
     }
 
@@ -202,14 +200,14 @@ struct LibraryView: View {
         HStack(spacing: 8) {
             Text(title)
                 .font(.system(.subheadline, design: badge == nil ? .default : .monospaced).weight(.semibold))
-                .foregroundStyle(Color(white: 0.15))
+                .foregroundStyle(Color.primary)
             if let badge {
                 Text(badge)
                     .font(.caption.weight(.medium))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
                     .background(Capsule().fill(Color.accentColor.opacity(0.18)))
-                    .foregroundStyle(Color(red: 0.08, green: 0.30, blue: 0.55))
+                    .foregroundStyle(Color(light: Color(red: 0.08, green: 0.30, blue: 0.55), dark: Color(red: 0.62, green: 0.80, blue: 1.0)))
             }
             Spacer(minLength: 0)
         }

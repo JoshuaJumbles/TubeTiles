@@ -37,10 +37,10 @@ struct GeneratorView: View {
             VStack(spacing: 4) {
                 Text(model.summary)
                     .font(.headline)
-                    .foregroundStyle(Color(white: 0.15))
+                    .foregroundStyle(Color.primary)
                 Text(model.message ?? hint)
                     .font(.footnote)
-                    .foregroundStyle(Color(white: 0.35))
+                    .foregroundStyle(Color.secondary)
                     .multilineTextAlignment(.center)
             }
             .padding(.top, 10)
@@ -55,7 +55,7 @@ struct GeneratorView: View {
                     .font(.body.weight(.semibold))
                     .frame(width: 40, height: 40)
                     .background(Circle().fill(TilePalette.face))
-                    .foregroundStyle(Color(white: 0.15))
+                    .foregroundStyle(Color.primary)
             }
             .accessibilityLabel("Export SVG")
             .disabled(model.maze.cells.isEmpty)

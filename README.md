@@ -36,6 +36,7 @@ editor and a tile-set generator), brought together in one codebase.
 - `TubeKit/` is a Swift package holding all model and logic, with no UI.
 - `App/` is the SwiftUI app, built from `TubeTiles.xcodeproj`.
 - `docs/screenshots/` holds images linked from pull requests.
+- `tools/make_icon.swift` redraws the app icon: `swift tools/make_icon.swift App/Assets.xcassets/AppIcon.appiconset/AppIcon.png`.
 
 ## Development
 

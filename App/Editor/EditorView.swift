@@ -42,11 +42,11 @@ struct EditorView: View {
             VStack(spacing: 4) {
                 Text(model.tile.edgeCode.description)
                     .font(.system(.title3, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(Color(white: 0.15))
+                    .foregroundStyle(Color.primary)
                     .accessibilityLabel("Edge code \(model.tile.edgeCode.description)")
                 Text(model.message ?? hint)
                     .font(.footnote)
-                    .foregroundStyle(Color(white: 0.35))
+                    .foregroundStyle(Color.secondary)
                     .multilineTextAlignment(.center)
             }
             .padding(.top, 10)
@@ -159,12 +159,12 @@ private struct KindButton: View {
                     let frame = TileFrame(fitting: size, padding: 3)
                     let style = TileStyle(portsPerEdge: 3)
                     let hex = TileRenderer.hexPath(in: frame)
-                    context.fill(hex, with: .color(.white))
+                    context.fill(hex, with: .color(TilePalette.face))
                     var clipped = context
                     clipped.clip(to: hex)
                     let sample = Pipe(kind, a: Port(edge: 5, slot: 1), b: Port(edge: 1, slot: 1))
                     TileRenderer.draw(sample, style: style, in: frame, context: &clipped)
-                    context.stroke(hex, with: .color(Color(white: 0.3)), lineWidth: 1)
+                    context.stroke(hex, with: .color(TilePalette.outline), lineWidth: 1)
                 }
                 .frame(height: 40)
                 Text(title)

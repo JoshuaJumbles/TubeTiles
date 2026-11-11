@@ -11,7 +11,7 @@ struct TileCanvas: View {
 
     private static let tileFace = TilePalette.face
     private static let outline = TilePalette.outline
-    private static let good = Color(red: 0.10, green: 0.55, blue: 0.35)
+    private static let good = TilePalette.positive
 
     var body: some View {
         GeometryReader { proxy in
@@ -45,7 +45,7 @@ struct TileCanvas: View {
                         let center = frame.point(point)
                         clipped.fill(
                             Path(CGRect(x: center.x - cell / 2, y: center.y - cell / 2, width: cell, height: cell)),
-                            with: .color(.red)
+                            with: .color(TilePalette.negative)
                         )
                     }
                 }

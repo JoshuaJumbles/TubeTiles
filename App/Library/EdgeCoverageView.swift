@@ -9,8 +9,8 @@ struct EdgeCoverageView: View {
 
     @State private var isExpanded = false
 
-    private static let covered = Color(red: 0.10, green: 0.50, blue: 0.33)
-    private static let missing = Color(red: 0.72, green: 0.25, blue: 0.20)
+    private static let covered = TilePalette.positive
+    private static let missing = TilePalette.negative
 
     var body: some View {
         let patterns = EdgeCode.allPatterns(portsPerEdge: library.portsPerEdge)
@@ -26,10 +26,10 @@ struct EdgeCoverageView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Edge patterns")
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color(white: 0.15))
+                            .foregroundStyle(Color.primary)
                         Text("\(coveredCount) of \(patterns.count) covered")
                             .font(.footnote)
-                            .foregroundStyle(Color(white: 0.35))
+                            .foregroundStyle(Color.secondary)
                     }
                     Spacer()
                     ProgressView(value: Double(coveredCount), total: Double(patterns.count))
@@ -37,7 +37,7 @@ struct EdgeCoverageView: View {
                         .frame(width: 90)
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Color(white: 0.35))
+                        .foregroundStyle(Color.secondary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
                 .contentShape(Rectangle())
@@ -47,7 +47,7 @@ struct EdgeCoverageView: View {
             if isExpanded {
                 Text("Each cell is one arrangement of pipes along an edge, with the number of tiles that have it. Empty cells are arrangements no tile can connect to yet.")
                     .font(.footnote)
-                    .foregroundStyle(Color(white: 0.35))
+                    .foregroundStyle(Color.secondary)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 62), spacing: 6)], spacing: 6) {
                     ForEach(patterns, id: \.self) { pattern in
                         cell(pattern: pattern, count: counts[pattern] ?? 0, busiest: busiest)
@@ -67,14 +67,14 @@ struct EdgeCoverageView: View {
                 ForEach(0..<width, id: \.self) { slot in
                     let isUsed = pattern & (1 << (width - 1 - slot)) != 0
                     Circle()
-                        .fill(isUsed ? Color(white: 0.1) : Color.clear)
-                        .overlay(Circle().stroke(Color(white: 0.1).opacity(isUsed ? 1 : 0.35), lineWidth: 1))
+                        .fill(isUsed ? Color.primary : Color.clear)
+                        .overlay(Circle().stroke(Color.primary.opacity(isUsed ? 1 : 0.35), lineWidth: 1))
                         .frame(width: 5, height: 5)
                 }
             }
             Text(count == 0 ? "none" : "\(count)")
                 .font(.caption2.weight(count == 0 ? .regular : .semibold))
-                .foregroundStyle(count == 0 ? Self.missing : Color(white: 0.15))
+                .foregroundStyle(count == 0 ? Self.missing : Color.primary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
