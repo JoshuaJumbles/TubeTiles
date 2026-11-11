@@ -8,8 +8,12 @@ import TubeKit
 final class GeneratorModel {
     static let radiusRange = 1...6
 
-    private(set) var maze: Maze
-    var symmetry: Symmetry = .none
+    private(set) var maze: Maze {
+        didSet { if maze != oldValue { scheduleAutosave() } }
+    }
+    var symmetry: Symmetry = .none {
+        didSet { if symmetry != oldValue { scheduleAutosave() } }
+    }
     /// Whether the generator may make up tiles the library does not have.
     var allowsGeneratedTiles = true
     /// How readily made-up tiles send out new pipes, 0 to 1.
@@ -18,7 +22,11 @@ final class GeneratorModel {
     /// tapping a pipe keeps or releases its loop instead of selecting a tile.
     var showsPaths = true
     /// Pipe ends on loops that merging must leave alone.
-    private(set) var kept: Set<PortRef> = []
+    private(set) var kept: Set<PortRef> = [] {
+        didSet { if kept != oldValue { scheduleAutosave() } }
+    }
+    /// The saved maze this one was opened from or last saved to, if any.
+    private(set) var documentID: UUID?
     private(set) var selected: HexCoord?
     private(set) var activity: Activity?
     private(set) var message: String?
@@ -30,16 +38,109 @@ final class GeneratorModel {
     var isRunning: Bool { activity != nil }
 
     private let library: LibraryModel
+    private let archive: MazeArchive
     private var runner: Task<Void, Never>?
+    private var autosave: Task<Void, Never>?
     private var random = SystemRandomNumberGenerator()
 
-    init(library: LibraryModel) {
+    init(library: LibraryModel, archive: MazeArchive) {
         self.library = library
-        let counts = library.portCounts
-        let fullest = counts.max {
-            library.library(portsPerEdge: $0).tiles.count < library.library(portsPerEdge: $1).tiles.count
+        self.archive = archive
+        if let working = archive.loadWorkingCopy() {
+            // Pick up where the last session left off.
+            maze = working.maze
+            symmetry = working.symmetry
+            kept = working.kept
+            documentID = archive.maze(id: working.documentID)?.id
+        } else {
+            let counts = library.portCounts
+            let fullest = counts.max {
+                library.library(portsPerEdge: $0).tiles.count < library.library(portsPerEdge: $1).tiles.count
+            }
+            maze = Maze(portsPerEdge: fullest ?? 6, radius: 3)
         }
-        maze = Maze(portsPerEdge: fullest ?? 6, radius: 3)
+    }
+
+    // MARK: Saving
+
+    /// Whether the maze differs from its saved version, or has never been
+    /// saved at all.
+    var hasUnsavedChanges: Bool {
+        guard let saved = archive.maze(id: documentID) else { return true }
+        return saved.maze != maze || saved.symmetry != symmetry || saved.kept != kept
+    }
+
+    /// Saves over the maze this one came from, or as a new maze if it has
+    /// never been saved.
+    func save() {
+        guard !maze.cells.isEmpty else { return }
+        var saved = archive.maze(id: documentID) ?? SavedMaze(name: archive.unusedName(), maze: maze)
+        saved.maze = maze
+        saved.symmetry = symmetry
+        saved.kept = kept
+        saved.modified = Date()
+        store(saved)
+    }
+
+    /// Saves a separate copy and carries on working on the copy.
+    func saveAsNew() {
+        guard !maze.cells.isEmpty else { return }
+        store(SavedMaze(name: archive.unusedName(), maze: maze, symmetry: symmetry, kept: kept))
+    }
+
+    private func store(_ saved: SavedMaze) {
+        do {
+            try archive.save(saved)
+            documentID = saved.id
+            message = "Saved as \u{201C}\(saved.name)\u{201D}."
+            writeWorkingCopy()
+        } catch {
+            message = "Could not save: \(error.localizedDescription)"
+        }
+    }
+
+    func open(_ saved: SavedMaze) {
+        stop()
+        maze = saved.maze
+        symmetry = saved.symmetry
+        kept = saved.kept
+        documentID = saved.id
+        selected = nil
+        message = nil
+        writeWorkingCopy()
+    }
+
+    /// Clears the generator and detaches it from any saved maze.
+    func startNewMaze() {
+        documentID = nil
+        clear()
+        writeWorkingCopy()
+    }
+
+    func delete(_ saved: SavedMaze) {
+        try? archive.delete(id: saved.id)
+        if documentID == saved.id {
+            documentID = nil
+            writeWorkingCopy()
+        }
+    }
+
+    /// Writes the working copy shortly after the last change, so a burst of
+    /// changes (a maze growing step by step) costs one write.
+    private func scheduleAutosave() {
+        autosave?.cancel()
+        autosave = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled else { return }
+            self?.writeWorkingCopy()
+        }
+    }
+
+    /// Writes the working copy now. Called when the app is about to leave
+    /// the foreground, as well as after changes settle.
+    func writeWorkingCopy() {
+        autosave?.cancel()
+        archive.saveWorkingCopy(WorkingCopy(maze: maze, symmetry: symmetry, kept: kept, documentID: documentID))
     }
 
     // MARK: Derived state
