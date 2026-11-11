@@ -29,23 +29,52 @@ struct TileFrame {
     }
 }
 
-/// Colours a tile is drawn with.
+extension Color {
+    /// A colour that follows the system appearance.
+    init(light: Color, dark: Color) {
+        self.init(UIColor { traits in
+            UIColor(traits.userInterfaceStyle == .dark ? dark : light)
+        })
+    }
+}
+
+/// Colours a tile is drawn with. In light mode tiles are dark walls on
+/// cream; in dark mode, light walls on charcoal.
 struct TilePalette {
     /// Pipe walls.
-    var ink: Color = Color(white: 0.08)
+    var ink: Color = Color(light: Color(white: 0.08), dark: Color(red: 0.93, green: 0.91, blue: 0.87))
     /// Pipe interiors.
-    var tube: Color = .white
+    var tube: Color = Color(light: .white, dark: Color(red: 0.05, green: 0.05, blue: 0.06))
 
     /// The blank surface of a tile.
-    static let face = Color(red: 0.99, green: 0.98, blue: 0.95)
+    static let face = Color(
+        light: Color(red: 0.99, green: 0.98, blue: 0.95), dark: Color(red: 0.15, green: 0.155, blue: 0.17)
+    )
     /// The hex border and free port markers.
-    static let outline = Color(white: 0.25)
+    static let outline = Color(light: Color(white: 0.25), dark: Color(white: 0.72))
     /// The backdrop tiles are shown on.
-    static let paper = Color(red: 0.93, green: 0.91, blue: 0.86)
+    static let paper = Color(
+        light: Color(red: 0.93, green: 0.91, blue: 0.86), dark: Color(red: 0.07, green: 0.07, blue: 0.08)
+    )
+    /// A cell of a maze that has no tile.
+    static let emptyCell = Color(
+        light: Color(red: 0.90, green: 0.88, blue: 0.82), dark: Color(red: 0.10, green: 0.10, blue: 0.11)
+    )
+    /// Marks things that are allowed or present.
+    static let positive = Color(
+        light: Color(red: 0.10, green: 0.52, blue: 0.34), dark: Color(red: 0.30, green: 0.78, blue: 0.55)
+    )
+    /// Marks things that are missing or refused.
+    static let negative = Color(
+        light: Color(red: 0.72, green: 0.25, blue: 0.20), dark: Color(red: 0.95, green: 0.48, blue: 0.42)
+    )
 
     static let standard = TilePalette()
-    static let rejected = TilePalette(ink: Color(red: 0.80, green: 0.16, blue: 0.14), tube: Color(red: 1, green: 0.92, blue: 0.90))
-    static let selected = TilePalette(ink: Color.accentColor, tube: .white)
+    static let rejected = TilePalette(
+        ink: Color(light: Color(red: 0.80, green: 0.16, blue: 0.14), dark: Color(red: 1.0, green: 0.45, blue: 0.40)),
+        tube: Color(light: Color(red: 1, green: 0.92, blue: 0.90), dark: Color(red: 0.30, green: 0.08, blue: 0.07))
+    )
+    static let selected = TilePalette(ink: Color.accentColor)
 }
 
 /// Draws tiles and pipes. Every screen that shows a tile goes through here.

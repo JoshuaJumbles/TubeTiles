@@ -5,8 +5,8 @@ import TubeKit
 struct MazeCanvas: View {
     var model: GeneratorModel
 
-    private static let emptyCell = Color(red: 0.90, green: 0.88, blue: 0.82)
-    private static let grid = Color(white: 0.25).opacity(0.12)
+    private static let emptyCell = TilePalette.emptyCell
+    private static let grid = TilePalette.outline.opacity(0.14)
     private static let open = Color(red: 0.85, green: 0.45, blue: 0.10)
 
     /// How the grid maps into the view: where the origin cell sits and how
