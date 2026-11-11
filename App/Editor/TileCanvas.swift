@@ -88,6 +88,12 @@ struct TileCanvas: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
+                        if model.isErasing {
+                            // Erase whatever the finger passes over, from
+                            // first touch onwards.
+                            model.erase(at: frame.tilePoint(value.location))
+                            return
+                        }
                         if touchStart == nil {
                             touchStart = .some(nearestPort(to: value.startLocation, in: frame))
                         }
@@ -98,6 +104,11 @@ struct TileCanvas: View {
                         }
                     }
                     .onEnded { _ in
+                        if model.isErasing {
+                            touchStart = nil
+                            isDragging = false
+                            return
+                        }
                         if isDragging {
                             model.endDrag()
                         } else if let start = touchStart {

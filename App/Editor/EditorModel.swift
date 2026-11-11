@@ -16,6 +16,8 @@ struct GhostPipe {
 final class EditorModel {
     private(set) var tile: Tile
     private(set) var kind: PipeKind = .bezier
+    /// True while the eraser is the tool in use: touching a pipe removes it.
+    private(set) var isErasing = false
     /// The free port a new pipe will start from.
     private(set) var selectedPort: Port?
     private(set) var selectedPipe: Pipe?
@@ -78,7 +80,7 @@ final class EditorModel {
     var style: TileStyle { TileStyle(portsPerEdge: tile.portsPerEdge) }
     /// Whether the canvas should mark which free ports are usable: the far
     /// ends for a pipe being drawn, or every spot a dead end would fit.
-    var highlightsTargets: Bool { selectedPort != nil || kind.isDeadEnd }
+    var highlightsTargets: Bool { !isErasing && (selectedPort != nil || kind.isDeadEnd) }
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
 
@@ -89,6 +91,11 @@ final class EditorModel {
         guard let port else {
             select(port: nil)
             selectedPipe = nil
+            return
+        }
+        if isErasing {
+            // Tapping a pipe's end erases it, like tapping along its length.
+            if let pipe = tile.pipe(at: port) { remove(pipe) }
             return
         }
         if let pipe = tile.pipe(at: port) {
@@ -120,7 +127,8 @@ final class EditorModel {
     /// Called as a drag that began on `start` moves; `hover` is the port
     /// nearest the finger, if any.
     func drag(from start: Port?, to hover: Port?) {
-        guard !kind.isDeadEnd, let start, tile.pipe(at: start) == nil, !deadPorts.contains(start) else { return }
+        guard !isErasing, !kind.isDeadEnd, let start, tile.pipe(at: start) == nil, !deadPorts.contains(start)
+        else { return }
         if selectedPort != start {
             selectedPipe = nil
             select(port: start)
@@ -152,15 +160,56 @@ final class EditorModel {
 
     func choose(_ kind: PipeKind) {
         self.kind = kind
+        isErasing = false
         if kind.isDeadEnd { selectedPort = nil }
         refreshTargets()
     }
 
+    /// Switches to the eraser. It stays on until a pipe kind is chosen.
+    func chooseEraser() {
+        isErasing = true
+        selectedPort = nil
+        selectedPipe = nil
+        ghost = nil
+        message = nil
+        refreshTargets()
+    }
+
+    /// Erases the pipe under a touch, if there is one. `point` is measured
+    /// from the tile's centre in tile units. Called for taps and as a finger
+    /// drags across the tile, so several pipes can go in one stroke; each is
+    /// its own step for undo.
+    func erase(at point: Point) {
+        guard isErasing else { return }
+        let style = style
+        let reach = style.pipeWidth * 0.75
+        let nearest = tile.pipes
+            .map { (pipe: $0, distance: PipeShape($0, style: style).distance(to: point)) }
+            .filter { $0.distance <= reach }
+            .min { $0.distance < $1.distance }
+        if let nearest { remove(nearest.pipe) }
+    }
+
     func deleteSelectedPipe() {
         guard let pipe = selectedPipe else { return }
+        remove(pipe)
+    }
+
+    private func remove(_ pipe: Pipe) {
         var next = tile
         next.removePipe(at: pipe.a)
         commit(next)
+    }
+
+    /// Carries on with a copy of the tile on the canvas. The copy has a new
+    /// identity, so saving it adds a tile and leaves the original as it was
+    /// last saved.
+    func makeVariant() {
+        guard !tile.pipes.isEmpty else { return }
+        var next = tile
+        next.id = UUID()
+        commit(next)
+        message = "This is a copy. Saving adds it as a new tile."
     }
 
     func undo() {
@@ -267,6 +316,10 @@ final class EditorModel {
     }
 
     private func refreshTargets() {
+        guard !isErasing else {
+            validTargets = []
+            return
+        }
         let dead = deadPorts
         if kind.isDeadEnd {
             validTargets = Set(tile.freePorts.filter {
