@@ -4,9 +4,9 @@ import TubeKit
 /// The tile editor: canvas beside its controls on wide screens, stacked on
 /// narrow ones.
 struct EditorView: View {
-    @State private var model = EditorModel()
+    var model: EditorModel
 
-    private static let paper = Color(red: 0.93, green: 0.91, blue: 0.86)
+    private static let paper = TilePalette.paper
 
     var body: some View {
         GeometryReader { proxy in
@@ -122,7 +122,8 @@ private struct EditorPanel: View {
                 .disabled(model.tile.pipes.isEmpty)
 
                 Button { model.save() } label: {
-                    Label("Save", systemImage: "square.and.arrow.down").frame(maxWidth: .infinity)
+                    Label(model.isSaved ? "Update" : "Save", systemImage: "square.and.arrow.down")
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(model.tile.pipes.isEmpty)
@@ -190,5 +191,5 @@ private struct KindButton: View {
 }
 
 #Preview {
-    EditorView()
+    EditorView(model: EditorModel(library: LibraryModel(store: nil)))
 }

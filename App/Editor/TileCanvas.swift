@@ -9,8 +9,8 @@ struct TileCanvas: View {
     @State private var touchStart: Port??
     @State private var isDragging = false
 
-    private static let tileFace = Color(red: 0.99, green: 0.98, blue: 0.95)
-    private static let outline = Color(white: 0.25)
+    private static let tileFace = TilePalette.face
+    private static let outline = TilePalette.outline
     private static let good = Color(red: 0.10, green: 0.55, blue: 0.35)
 
     var body: some View {

@@ -24,8 +24,31 @@ public struct TileLibrary: Hashable, Sendable, Codable {
         tiles.removeAll { $0.id == id }
     }
 
-    /// Tiles grouped by edge code: the sets of interchangeable variants.
+    public func contains(id: Tile.ID) -> Bool {
+        tiles.contains { $0.id == id }
+    }
+
+    /// Tiles grouped by exact edge code, as drawn.
     public var tilesByEdgeCode: [EdgeCode: [Tile]] {
         Dictionary(grouping: tiles, by: \.edgeCode)
+    }
+
+    /// Tiles grouped by canonical edge code: each group is a set of variants
+    /// the generator can swap for one another, turning or flipping as needed.
+    public var tilesByProfile: [EdgeCode: [Tile]] {
+        Dictionary(grouping: tiles) { $0.edgeCode.canonical }
+    }
+
+    /// For each edge pattern, how many tiles have an edge that can show it.
+    /// Patterns no tile offers are absent.
+    public var edgePatternCounts: [Int: Int] {
+        var counts: [Int: Int] = [:]
+        for tile in tiles {
+            let patterns = Set(tile.edgeCode.values.map { EdgeCode.pattern($0, width: portsPerEdge) })
+            for pattern in patterns {
+                counts[pattern, default: 0] += 1
+            }
+        }
+        return counts
     }
 }

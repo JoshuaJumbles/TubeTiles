@@ -31,6 +31,13 @@ struct TilePalette {
     /// Pipe interiors.
     var tube: Color = .white
 
+    /// The blank surface of a tile.
+    static let face = Color(red: 0.99, green: 0.98, blue: 0.95)
+    /// The hex border and free port markers.
+    static let outline = Color(white: 0.25)
+    /// The backdrop tiles are shown on.
+    static let paper = Color(red: 0.93, green: 0.91, blue: 0.86)
+
     static let standard = TilePalette()
     static let rejected = TilePalette(ink: Color(red: 0.80, green: 0.16, blue: 0.14), tube: Color(red: 1, green: 0.92, blue: 0.90))
     static let selected = TilePalette(ink: Color.accentColor, tube: .white)

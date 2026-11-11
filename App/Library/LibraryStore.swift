@@ -1,10 +1,8 @@
 import Foundation
 import TubeKit
 
-/// Reads and writes tile libraries as JSON files in the app's documents.
-///
-/// For now there is one library per port count. Browsing and managing
-/// libraries arrives with the library screen.
+/// Reads and writes tile libraries as JSON files in the app's documents,
+/// one file per port count.
 struct LibraryStore {
     private var folder: URL {
         URL.documentsDirectory.appendingPathComponent("Libraries", isDirectory: true)
@@ -14,13 +12,15 @@ struct LibraryStore {
         folder.appendingPathComponent("ports-\(portsPerEdge).json")
     }
 
-    func library(portsPerEdge: Int) -> TileLibrary {
-        let url = fileURL(portsPerEdge: portsPerEdge)
-        if let data = try? Data(contentsOf: url),
-           let library = try? JSONDecoder().decode(TileLibrary.self, from: data) {
-            return library
+    /// Every library on disk. Files that cannot be read are skipped.
+    func allLibraries() -> [TileLibrary] {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: folder, includingPropertiesForKeys: nil
+        )) ?? []
+        return files.filter { $0.pathExtension == "json" }.compactMap { url in
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            return try? JSONDecoder().decode(TileLibrary.self, from: data)
         }
-        return TileLibrary(name: "\(portsPerEdge) ports", portsPerEdge: portsPerEdge)
     }
 
     func write(_ library: TileLibrary) throws {

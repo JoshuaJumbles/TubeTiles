@@ -70,6 +70,26 @@ public struct EdgeCode: Hashable, Sendable, Codable, CustomStringConvertible {
         return EdgeCode(portsPerEdge: portsPerEdge, values: result)
     }
 
+    /// The same profile in a standard orientation: the smallest of its
+    /// twelve placements. Two tiles the generator can use interchangeably,
+    /// after turning or flipping one of them, share a canonical code.
+    public var canonical: EdgeCode {
+        TileTransform.allCases
+            .map { transformed(by: $0) }
+            .min { $0.values.lexicographicallyPrecedes($1.values) } ?? self
+    }
+
+    /// A single edge's pattern, ignoring direction: the smaller of the value
+    /// and its bit reversal. A tile can show either by being flipped.
+    public static func pattern(_ value: Int, width: Int) -> Int {
+        min(value, reversed(value, width: width))
+    }
+
+    /// Every distinct edge pattern for a port count, including the empty edge.
+    public static func allPatterns(portsPerEdge: Int) -> [Int] {
+        (0..<(1 << portsPerEdge)).filter { $0 == pattern($0, width: portsPerEdge) }
+    }
+
     /// Reverses the lowest `width` bits of `value`.
     public static func reversed(_ value: Int, width: Int) -> Int {
         var result = 0

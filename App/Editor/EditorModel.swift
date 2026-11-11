@@ -25,19 +25,23 @@ final class EditorModel {
     private(set) var validTargets: Set<Port> = []
     private(set) var ghost: GhostPipe?
     private(set) var message: String?
-    private(set) var savedTileCount = 0
 
     private var coverage: CoverageMap
     private var undoStack: [Tile] = []
     private var redoStack: [Tile] = []
-    private let store = LibraryStore()
+    private let library: LibraryModel
 
-    init(portsPerEdge: Int = 6) {
+    init(library: LibraryModel, portsPerEdge: Int = 6) {
+        self.library = library
         let tile = Tile(portsPerEdge: portsPerEdge)
         self.tile = tile
         coverage = CoverageMap(tile: tile)
-        savedTileCount = store.library(portsPerEdge: portsPerEdge).tiles.count
     }
+
+    /// Whether the tile on the canvas is already in the library, so saving
+    /// updates it rather than adding a new one.
+    var isSaved: Bool { library.contains(tile) }
+    var savedTileCount: Int { library.library(portsPerEdge: tile.portsPerEdge).tiles.count }
 
     var style: TileStyle { TileStyle(portsPerEdge: tile.portsPerEdge) }
     var canUndo: Bool { !undoStack.isEmpty }
@@ -133,7 +137,14 @@ final class EditorModel {
     func setPortsPerEdge(_ count: Int) {
         guard count != tile.portsPerEdge, Self.portRange.contains(count) else { return }
         commit(Tile(portsPerEdge: count))
-        savedTileCount = store.library(portsPerEdge: count).tiles.count
+    }
+
+    /// Puts a library tile on the canvas. A copy gets a new identity, so
+    /// saving it adds a tile instead of replacing the original.
+    func open(_ saved: Tile, asCopy: Bool) {
+        var next = saved
+        if asCopy { next.id = UUID() }
+        commit(next)
     }
 
     func addRandomPipe() {
@@ -161,12 +172,10 @@ final class EditorModel {
             message = "Add a pipe before saving."
             return
         }
-        var library = store.library(portsPerEdge: tile.portsPerEdge)
-        library.save(tile)
+        let wasSaved = isSaved
         do {
-            try store.write(library)
-            savedTileCount = library.tiles.count
-            message = "Saved to the \(tile.portsPerEdge)-port library."
+            try library.save(tile)
+            message = wasSaved ? "Updated in the library." : "Saved to the \(tile.portsPerEdge)-port library."
         } catch {
             message = "Could not save: \(error.localizedDescription)"
         }
