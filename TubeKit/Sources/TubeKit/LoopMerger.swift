@@ -52,7 +52,9 @@ public struct LoopMerger: Sendable {
             var pairs: [(Pipe, Pipe)] = []
             for (offset, first) in pipes.enumerated() {
                 for second in pipes.dropFirst(offset + 1) {
-                    guard let a = paths.index(of: first, at: coord), let b = paths.index(of: second, at: coord),
+                    // A dead end has no partner to swap, so it stays as it is.
+                    guard !first.isDeadEnd, !second.isDeadEnd,
+                          let a = paths.index(of: first, at: coord), let b = paths.index(of: second, at: coord),
                           a != b, !kept.contains(a), !kept.contains(b)
                     else { continue }
                     pairs.append((first, second))
@@ -61,8 +63,9 @@ public struct LoopMerger: Sendable {
             guard !pairs.isEmpty else { continue }
 
             // A library tile with the same edges is the first choice.
-            let variants = self.generator.options.filter {
+            let variants = (self.generator.options + self.generator.goalOptions).filter {
                 $0.code == placed.code && !$0.looksLike(placed)
+                    && Set($0.oriented.deadEnds) == Set(placed.oriented.deadEnds)
             }
             for variant in variants.shuffled(using: &generator) {
                 if let next = improved(variant, at: coord) {
@@ -106,10 +109,13 @@ public struct LoopMerger: Sendable {
             // too, which swapping two pipes cannot give, so this is the only
             // route for those and gets more attempts.
             let fixing = symmetry.transforms.filter { $0 != .identity && coord.transformed(by: $0) == coord }
+            let ends = placed.oriented.deadEnds
+            guard ends.count <= 1, ends.isEmpty || fixing.isEmpty else { continue }
             for _ in 0..<(fixing.isEmpty ? 3 : 12) {
                 guard let tile = TileSynthesizer.tile(
                     portsPerEdge: maze.portsPerEdge, ports: placed.oriented.occupiedPorts,
                     invariantUnder: fixing,
+                    deadEnd: ends.first.map { ($0.a, $0.kind) },
                     kinds: self.generator.synthesis?.kinds ?? TileSynthesizer.defaultKinds, using: &generator
                 ) else { continue }
                 if let next = improved(PlacedTile(tile, isGenerated: true), at: coord) {

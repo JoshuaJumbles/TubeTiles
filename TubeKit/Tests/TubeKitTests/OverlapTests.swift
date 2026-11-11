@@ -20,7 +20,7 @@ struct SeededGenerator: RandomNumberGenerator {
     let style = TileStyle(portsPerEdge: 6)
 
     @Test func shapesStartAndEndOnTheirPorts() {
-        for kind in PipeKind.allCases {
+        for kind in PipeKind.throughKinds {
             let pipe = Pipe(kind, a: port(0, 1), b: port(2, 4))
             let shape = PipeShape(pipe, style: style)
             let points = shape.segments.flatMap { $0.flattened() }

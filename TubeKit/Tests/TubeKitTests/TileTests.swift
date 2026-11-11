@@ -16,7 +16,7 @@ private func sampleTile(portsPerEdge: Int, seed: Int) -> Tile {
         guard free.count >= 2 else { break }
         let a = free[next(free.count)]
         let b = free[next(free.count)]
-        let kind = PipeKind.allCases[next(PipeKind.allCases.count)]
+        let kind = PipeKind.throughKinds[next(PipeKind.throughKinds.count)]
         try? tile.add(Pipe(kind, a: a, b: b))
     }
     return tile

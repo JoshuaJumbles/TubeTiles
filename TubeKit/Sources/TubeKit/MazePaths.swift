@@ -14,16 +14,25 @@ public struct MazePath: Hashable, Sendable {
     public struct Step: Hashable, Sendable {
         public var coord: HexCoord
         public var pipe: Pipe
-        /// The end of the pipe the path comes in through.
+        /// The end of the pipe the path comes in through. For a dead end,
+        /// its only port.
         public var entry: Port
+        /// For a dead end only: true when the path sets off from the room
+        /// and leaves by the port, false when it arrives and stops.
+        public var startsInRoom = false
 
         public var exit: Port { pipe.otherEnd(from: entry) ?? entry }
+
+        /// Whether the path travels the pipe's centre line from its far end
+        /// back to its `a` end.
+        public var runsBackwards: Bool {
+            pipe.isDeadEnd ? startsInRoom : entry != pipe.a
+        }
     }
 
     public var steps: [Step]
-    /// True for a loop. False for a strand with two ends: either a path
-    /// running between the maze's openings, or a loose piece of an
-    /// unfinished maze.
+    /// True for a loop. False for a strand with two ends: a path running
+    /// between openings or dead ends, or a loose piece of an unfinished maze.
     public var isClosed: Bool
 
     /// The pipe ends where an open path starts and finishes. Nil for a loop.
@@ -85,9 +94,11 @@ extension Maze {
             for pipe in cells[coord]?.oriented.pipes ?? [] {
                 guard visited.insert(PortRef(coord: coord, port: pipe.a)).inserted else { continue }
 
-                var steps = [MazePath.Step(coord: coord, pipe: pipe, entry: pipe.a)]
+                // A dead end has only one way on, out through its port, so
+                // it is always the first step of its path.
+                var steps = [MazePath.Step(coord: coord, pipe: pipe, entry: pipe.a, startsInRoom: pipe.isDeadEnd)]
                 var isClosed = false
-                var position = (coord: coord, exit: pipe.b)
+                var position = (coord: coord, exit: pipe.isDeadEnd ? pipe.a : pipe.b)
                 while let next = crossing(from: position.coord, through: position.exit) {
                     if next.coord == coord && next.pipe == pipe {
                         isClosed = true
@@ -96,15 +107,23 @@ extension Maze {
                     visited.insert(PortRef(coord: next.coord, port: next.pipe.a))
                     let step = MazePath.Step(coord: next.coord, pipe: next.pipe, entry: next.entry)
                     steps.append(step)
+                    // Arriving at a dead end finishes the path.
+                    if next.pipe.isDeadEnd { break }
                     position = (next.coord, step.exit)
                 }
 
-                if !isClosed {
-                    // A loose strand: also walk back from the starting end.
+                if !isClosed && !pipe.isDeadEnd {
+                    // A strand with ends: also walk back from the start.
                     var earlier: [MazePath.Step] = []
                     position = (coord, pipe.a)
                     while let next = crossing(from: position.coord, through: position.exit) {
                         visited.insert(PortRef(coord: next.coord, port: next.pipe.a))
+                        if next.pipe.isDeadEnd {
+                            earlier.append(MazePath.Step(
+                                coord: next.coord, pipe: next.pipe, entry: next.entry, startsInRoom: true
+                            ))
+                            break
+                        }
                         let leaving = next.pipe.otherEnd(from: next.entry) ?? next.entry
                         earlier.append(MazePath.Step(coord: next.coord, pipe: next.pipe, entry: leaving))
                         position = (next.coord, leaving)

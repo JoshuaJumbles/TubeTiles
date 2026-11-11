@@ -21,6 +21,7 @@ struct TileCanvas: View {
             let selectedPort = model.selectedPort
             let selectedPipe = model.selectedPipe
             let validTargets = model.validTargets
+            let highlightsTargets = model.highlightsTargets
             let ghost = model.ghost
 
             Canvas { context, _ in
@@ -64,7 +65,7 @@ struct TileCanvas: View {
                         if port == selectedPort {
                             context.fill(dot(7), with: .color(.accentColor))
                             context.stroke(dot(12), with: .color(.accentColor), lineWidth: 2)
-                        } else if selectedPort != nil {
+                        } else if highlightsTargets {
                             if validTargets.contains(port) {
                                 context.fill(dot(6), with: .color(Self.good))
                             } else {

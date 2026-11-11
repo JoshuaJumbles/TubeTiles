@@ -16,6 +16,7 @@ struct TileDetailView: View {
         let names: [(PipeKind, String)] = [
             (.bezier, "curve"), (.corner, "corner"), (.roomSmall, "small room"),
             (.roomMedium, "medium room"), (.roomLarge, "large room"),
+            (.endSmall, "small dead end"), (.endMedium, "medium dead end"), (.endLarge, "large dead end"),
         ]
         let parts = names.compactMap { kind, name -> String? in
             let count = tile.pipes.filter { $0.kind == kind }.count

@@ -62,7 +62,7 @@ public enum MazeSVG {
             var commands: [String] = []
             for step in path.steps {
                 var segments = PipeShape(step.pipe, style: style).segments
-                if step.entry != step.pipe.a {
+                if step.runsBackwards {
                     segments = segments.reversed().map { segment in
                         switch segment {
                         case let .line(start, end): .line(end, start)

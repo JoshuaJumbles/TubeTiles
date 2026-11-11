@@ -183,7 +183,7 @@ final class GeneratorModel {
         let open = openCells.count
         guard open == 0 else { return "\(maze.cells.count) of \(maze.cellCount) cells · \(open) open" }
         let count = paths.paths.count
-        let isOpen = maze.openings.count == 2
+        let isOpen = maze.endCount > 0
         let what = count == 1 ? "one path" : "\(count) \(isOpen ? "paths" : "loops")"
         return "Sealed · \(maze.cells.count) tiles · " + what
     }
@@ -263,11 +263,57 @@ final class GeneratorModel {
         stop()
         let hadTiles = !maze.cells.isEmpty
         maze.setOpenings(openings)
+        settleEnds(hadTiles: hadTiles)
+    }
+
+    // MARK: Goals
+
+    /// Makes a cell a goal, or stops it being one. A goal's tile ends a path
+    /// in a room.
+    func toggleGoal(_ coord: HexCoord) {
+        stop()
+        selected = nil
+        var goals = maze.goals
+        if goals.contains(coord) {
+            goals.remove(coord)
+        } else if goals.count >= 2 {
+            message = "There are already two goals. Touch and hold one to remove it first."
+            return
+        } else {
+            goals.insert(coord)
+        }
+        applyGoals(goals)
+    }
+
+    func addCentreGoal() {
+        applyGoals(maze.goals.union([.origin]))
+    }
+
+    func removeGoals() {
+        applyGoals([])
+    }
+
+    private func applyGoals(_ goals: Set<HexCoord>) {
+        stop()
+        let hadTiles = !maze.cells.isEmpty
+        maze.setGoals(goals)
+        settleEnds(hadTiles: hadTiles)
+    }
+
+    /// Every path has two ends, so openings and goals must come to an even
+    /// number before the maze can be grown.
+    private var hasPairedEnds: Bool {
+        guard maze.endCount % 2 != 0 else { return true }
+        message = "A path needs two ends. Add an entrance on the outline, or a second goal."
+        return false
+    }
+
+    /// After openings or goals change: regrow what was taken out, or say
+    /// what is still missing.
+    private func settleEnds(hadTiles: Bool) {
         pruneKept()
-        if maze.openings.count == 1 {
-            message = "Now add the other end: tap another spot just outside the outline."
-        } else if hadTiles {
-            // Regrow the tiles beside the changed openings.
+        if !hasPairedEnds { return }
+        if hadTiles {
             fill()
         } else {
             message = nil
@@ -286,6 +332,7 @@ final class GeneratorModel {
     @discardableResult
     func step() -> Bool {
         selected = nil
+        guard hasPairedEnds else { return false }
         defer { pruneKept() }
         switch generator.step(&maze, symmetry: symmetry, using: &random) {
         case .placed, .cleared:
@@ -345,7 +392,12 @@ final class GeneratorModel {
         let paths = paths
         let free = paths.paths.count - keptPaths(in: paths).count
         if paths.paths.count == 1 {
-            message = maze.openings.count == 2 ? "One path from entrance to exit." : "One continuous path."
+            message = switch (maze.openings.count, maze.goals.count) {
+            case (2, 0): "One path from entrance to exit."
+            case (1, 1): "One path from the entrance to the goal."
+            case (0, 2): "One path from room to room."
+            default: "One continuous path."
+            }
         } else if free <= 1 {
             message = "Only kept loops are left."
         } else if symmetry == .mirror {
@@ -397,6 +449,7 @@ final class GeneratorModel {
     func fill() {
         stop()
         selected = nil
+        guard hasPairedEnds else { return }
         defer { pruneKept() }
         if generator.fill(&maze, symmetry: symmetry, using: &random) {
             message = nil

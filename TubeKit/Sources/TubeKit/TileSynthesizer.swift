@@ -12,6 +12,9 @@ public enum TileSynthesizer {
     /// pairing was found within the search budget.
     ///
     /// - Parameters:
+    ///   - deadEnd: A port that should end in a room instead of being joined
+    ///     to another, and the size of room. The rest of the ports are paired
+    ///     up around it. Cannot be combined with `invariantUnder`.
     ///   - invariantUnder: Transforms the finished tile must look the same
     ///     under. Needed for cells that a maze symmetry maps onto themselves.
     ///     `ports` must already be closed under them.
@@ -20,19 +23,33 @@ public enum TileSynthesizer {
         portsPerEdge: Int,
         ports: some Collection<Port>,
         invariantUnder symmetries: [TileTransform] = [],
+        deadEnd: (port: Port, kind: PipeKind)? = nil,
         kinds: [PipeKind] = defaultKinds,
         using generator: inout some RandomNumberGenerator
     ) -> Tile? {
-        let wanted = Set(ports)
-        guard wanted.count == ports.count, wanted.count % 2 == 0,
+        var wanted = Set(ports)
+        guard wanted.count == ports.count,
               wanted.allSatisfy({ $0.isValid(portsPerEdge: portsPerEdge) })
         else { return nil }
 
-        let empty = Tile(portsPerEdge: portsPerEdge)
+        var tile = Tile(portsPerEdge: portsPerEdge)
+        var coverage = CoverageMap(tile: tile)
+        if let deadEnd {
+            // The room goes in first, so every other pipe has to find a way
+            // round it.
+            let pipe = Pipe(deadEnd.kind, at: deadEnd.port)
+            guard deadEnd.kind.isDeadEnd, symmetries.isEmpty, wanted.remove(deadEnd.port) != nil,
+                  PlacementRules.error(adding: pipe, to: tile, coverage: coverage) == nil
+            else { return nil }
+            tile.pipes.append(pipe)
+            coverage.add(pipe)
+        }
+        guard wanted.count % 2 == 0 else { return nil }
+
         var budget = 300
         return pair(
-            wanted, into: empty, coverage: CoverageMap(tile: empty),
-            symmetries: symmetries, kinds: kinds, budget: &budget, using: &generator
+            wanted, into: tile, coverage: coverage,
+            symmetries: symmetries, kinds: kinds.filter { !$0.isDeadEnd }, budget: &budget, using: &generator
         )
     }
 

@@ -11,6 +11,8 @@ public enum PlacementError: Error, Equatable, Sendable {
     case mustRunStraightAcross
     /// Three pipes would overlap, or something would cross a room or bend.
     case overlap
+    /// A dead end uses exactly one port.
+    case deadEndNeedsOnePort
 }
 
 /// The rules for where a pipe may go.
@@ -24,6 +26,7 @@ public enum PlacementRules {
         for port in [pipe.a, pipe.b] where !port.isValid(portsPerEdge: portsPerEdge) {
             return .portOutOfRange(port)
         }
+        if pipe.isDeadEnd { return pipe.a == pipe.b ? nil : .deadEndNeedsOnePort }
         if pipe.a == pipe.b { return .samePort }
 
         let sameEdge = pipe.a.edge == pipe.b.edge
@@ -36,6 +39,8 @@ public enum PlacementRules {
         case .corner, .roomSmall, .roomMedium, .roomLarge:
             if sameEdge { return .needsTwoEdges }
             if offsetAcross { return .mustRunStraightAcross }
+        case .endSmall, .endMedium, .endLarge:
+            break
         }
         return nil
     }
@@ -49,7 +54,7 @@ public enum PlacementRules {
         adding pipe: Pipe, to tile: Tile, coverage: CoverageMap? = nil
     ) -> PlacementError? {
         if let error = shapeError(for: pipe, portsPerEdge: tile.portsPerEdge) { return error }
-        for port in [pipe.a, pipe.b] where tile.pipe(at: port) != nil {
+        for port in pipe.ports where tile.pipe(at: port) != nil {
             return .portOccupied(port)
         }
         if !(coverage ?? CoverageMap(tile: tile)).fits(pipe) { return .overlap }

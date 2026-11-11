@@ -207,6 +207,24 @@ private struct GeneratorPanel: View {
                     }
                     .buttonStyle(.bordered)
 
+                    VStack(alignment: .leading, spacing: 6) {
+                        if model.maze.goals.isEmpty {
+                            Button { model.addCentreGoal() } label: {
+                                Label("Add a goal in the middle", systemImage: "scope")
+                                    .frame(maxWidth: .infinity)
+                            }
+                        } else {
+                            Button(role: .destructive) { model.removeGoals() } label: {
+                                Label(model.maze.goals.count == 1 ? "Remove the goal" : "Remove goals", systemImage: "xmark")
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                        Text("A goal ends a path in a room. Touch and hold any cell to make it one.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.bordered)
+
                     Toggle("Make up tiles the library lacks", isOn: $model.allowsGeneratedTiles)
 
                     if model.allowsGeneratedTiles {

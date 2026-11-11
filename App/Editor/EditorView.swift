@@ -60,6 +60,7 @@ struct EditorView: View {
     private var hint: String {
         if model.selectedPipe != nil { return "Pipe selected. Delete it, or tap elsewhere." }
         if model.selectedPort != nil { return "Tap a green port to finish the pipe." }
+        if model.kind.isDeadEnd { return "Tap a green port to end a pipe there in a room." }
         return "Tap or drag between two ports to draw a pipe."
     }
 }
@@ -72,7 +73,7 @@ private struct EditorPanel: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Pipe").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                HStack(spacing: 8) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
                     ForEach(PipeKind.allCases, id: \.self) { kind in
                         KindButton(kind: kind, isSelected: model.kind == kind) {
                             model.choose(kind)
@@ -149,6 +150,9 @@ private struct KindButton: View {
         case .roomSmall: "Room S"
         case .roomMedium: "Room M"
         case .roomLarge: "Room L"
+        case .endSmall: "End S"
+        case .endMedium: "End M"
+        case .endLarge: "End L"
         }
     }
 
@@ -162,17 +166,19 @@ private struct KindButton: View {
                     context.fill(hex, with: .color(TilePalette.face))
                     var clipped = context
                     clipped.clip(to: hex)
-                    let sample = Pipe(kind, a: Port(edge: 5, slot: 1), b: Port(edge: 1, slot: 1))
+                    let sample = kind.isDeadEnd
+                        ? Pipe(kind, at: Port(edge: 3, slot: 1))
+                        : Pipe(kind, a: Port(edge: 5, slot: 1), b: Port(edge: 1, slot: 1))
                     TileRenderer.draw(sample, style: style, in: frame, context: &clipped)
                     context.stroke(hex, with: .color(TilePalette.outline), lineWidth: 1)
                 }
-                .frame(height: 40)
+                .frame(height: 32)
                 Text(title)
                     .font(.caption2)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            .padding(.vertical, 6)
+            .padding(.vertical, 4)
             .padding(.horizontal, 2)
             .frame(maxWidth: .infinity)
             .background(
