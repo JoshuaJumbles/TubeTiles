@@ -34,9 +34,13 @@ editor and a tile-set generator), brought together in one codebase.
 ## Layout
 
 - `TubeKit/` is a Swift package holding all model and logic, with no UI.
+- `App/` is the SwiftUI app, built from `TubeTiles.xcodeproj`.
 - `docs/screenshots/` holds images linked from pull requests.
 
 ## Development
+
+Open `TubeTiles.xcodeproj` in Xcode to run the app. The core logic has its
+own tests:
 
 ```bash
 cd TubeKit && swift test

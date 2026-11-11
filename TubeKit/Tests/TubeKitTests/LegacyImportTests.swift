@@ -84,7 +84,8 @@ import Testing
                     PlacementRules.shapeError(for: $0, portsPerEdge: set.portsPerEdge) != nil
                 } || tile.occupiedPorts.count != tile.pipes.count * 2
             }
-            print("\(set.name): \(set.tiles.count) tiles, \(set.portsPerEdge) ports per edge, \(broken.count) outside current rules")
+            let overlapping = set.tiles.filter { CoverageMap(tile: $0).hasViolation }
+            print("\(set.name): \(set.tiles.count) tiles, \(set.portsPerEdge) ports per edge, \(broken.count) outside shape rules, \(overlapping.count) outside overlap rule")
         }
     }
 }

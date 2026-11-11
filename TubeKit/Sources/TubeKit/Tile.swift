@@ -7,7 +7,7 @@ import Foundation
 public struct Tile: Identifiable, Hashable, Sendable, Codable {
     public var id: UUID
     public let portsPerEdge: Int
-    public private(set) var pipes: [Pipe]
+    public internal(set) var pipes: [Pipe]
 
     public init(id: UUID = UUID(), portsPerEdge: Int) {
         precondition(portsPerEdge > 0, "A tile needs at least one port per edge")
