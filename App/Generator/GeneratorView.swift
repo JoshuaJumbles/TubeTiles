@@ -54,8 +54,9 @@ struct GeneratorView: View {
     private var hint: String {
         if model.selected != nil { return "Tile selected. Swap or delete it, or tap elsewhere." }
         if model.maze.cells.isEmpty { return "Mazes grow from the middle and seal at the outline." }
-        if model.openCells.isEmpty { return "Tap a tile to change it, or an empty cell to add one." }
-        return "Dashed cells still need a tile."
+        if !model.openCells.isEmpty { return "Dashed cells still need a tile." }
+        if model.showsPaths { return "Each colour is one loop. Tap a loop to keep it out of merging." }
+        return "Tap a tile to change it, or an empty cell to add one."
     }
 }
 
@@ -82,8 +83,11 @@ private struct GeneratorPanel: View {
                 }
                 .disabled(model.isRunning)
                 Button { model.toggleRunning() } label: {
-                    Label(model.isRunning ? "Pause" : "Grow", systemImage: model.isRunning ? "pause.fill" : "play.fill")
-                        .frame(maxWidth: .infinity)
+                    Label(
+                        model.activity == .growing ? "Pause" : "Grow",
+                        systemImage: model.activity == .growing ? "pause.fill" : "play.fill"
+                    )
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 Button { model.fill() } label: {
@@ -108,6 +112,24 @@ private struct GeneratorPanel: View {
             }
             .buttonStyle(.bordered)
             .labelStyle(.titleOnly)
+
+            HStack(spacing: 10) {
+                Button { model.toggleMerging() } label: {
+                    Label(
+                        model.activity == .merging ? "Pause" : "Merge loops",
+                        systemImage: model.activity == .merging ? "pause.fill" : "arrow.triangle.merge"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!model.maze.isSealed)
+
+                Toggle(isOn: $model.showsPaths) {
+                    Label("Paths", systemImage: "paintpalette")
+                }
+                .toggleStyle(.button)
+                .buttonStyle(.bordered)
+            }
 
             LabeledContent("Symmetry") {
                 Picker("Symmetry", selection: $model.symmetry) {

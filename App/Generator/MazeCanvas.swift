@@ -9,6 +9,19 @@ struct MazeCanvas: View {
     private static let grid = Color(white: 0.25).opacity(0.12)
     private static let open = Color(red: 0.85, green: 0.45, blue: 0.10)
 
+    /// The colours for one path. A loop keeps its colour as long as its
+    /// first pipe stays put, so merging elsewhere does not reshuffle the rest.
+    /// Kept loops are drawn plain, and loose strands grey.
+    private static func palette(for path: MazePath?, isKept: Bool) -> TilePalette {
+        guard let path, let first = path.steps.first, !isKept else { return .standard }
+        guard path.isClosed else {
+            return TilePalette(tube: Color(white: 0.86))
+        }
+        let seed = first.coord.q * 73 + first.coord.r * 151 + first.pipe.a.edge * 31 + first.pipe.a.slot * 17
+        let hue = (Double(seed) * 0.618034).truncatingRemainder(dividingBy: 1)
+        return TilePalette(tube: Color(hue: hue < 0 ? hue + 1 : hue, saturation: 0.45, brightness: 0.97))
+    }
+
     /// How the grid maps into the view: where the origin cell sits and how
     /// many points one tile unit is.
     private struct Layout {
@@ -31,11 +44,13 @@ struct MazeCanvas: View {
             )
         }
 
-        func coord(at point: CGPoint, in maze: Maze) -> HexCoord? {
+        /// The cell under a point, and where in that cell the point falls,
+        /// measured from the cell's centre in tile units.
+        func cell(at point: CGPoint, in maze: Maze) -> (coord: HexCoord, local: Point)? {
             let target = Point(x: (point.x - origin.x) / scale, y: (point.y - origin.y) / scale)
             let nearest = maze.coords.min { $0.center.distance(to: target) < $1.center.distance(to: target) }
             guard let nearest, nearest.center.distance(to: target) <= 1 else { return nil }
-            return nearest
+            return (nearest, target - nearest.center)
         }
     }
 
@@ -46,6 +61,9 @@ struct MazeCanvas: View {
             let openCells = Set(model.openCells)
             let selected = model.selected
             let selectedImages = selected.map { Set(maze.images(of: $0, symmetry: model.symmetry)) } ?? []
+            let showsPaths = model.showsPaths
+            let paths = model.paths
+            let keptPaths = model.keptPaths(in: paths)
 
             Canvas { context, _ in
                 for coord in maze.coords {
@@ -53,7 +71,23 @@ struct MazeCanvas: View {
                     let hex = TileRenderer.hexPath(in: frame)
                     if let placed = maze.cells[coord] {
                         context.fill(hex, with: .color(TilePalette.face))
-                        TileRenderer.draw(placed.oriented, in: frame, context: &context)
+                        if showsPaths {
+                            var clipped = context
+                            clipped.clip(to: hex)
+                            let style = TileStyle(portsPerEdge: maze.portsPerEdge)
+                            for pipe in placed.oriented.pipes {
+                                let index = paths.index(of: pipe, at: coord)
+                                TileRenderer.draw(
+                                    pipe, style: style, in: frame, context: &clipped,
+                                    palette: Self.palette(
+                                        for: index.map { paths.paths[$0] },
+                                        isKept: index.map(keptPaths.contains) ?? false
+                                    )
+                                )
+                            }
+                        } else {
+                            TileRenderer.draw(placed.oriented, in: frame, context: &context)
+                        }
                     } else {
                         context.fill(hex, with: .color(Self.emptyCell))
                     }
@@ -77,7 +111,8 @@ struct MazeCanvas: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { location in
-                model.tap(layout.coord(at: location, in: maze))
+                let cell = layout.cell(at: location, in: maze)
+                model.tap(cell?.coord, local: cell?.local ?? .zero)
             }
             .accessibilityLabel("Maze canvas")
         }
