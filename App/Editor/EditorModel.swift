@@ -45,6 +45,10 @@ final class EditorModel {
     var libraryID: UUID { library.currentID }
     var libraries: [TileLibrary] { library.libraries }
 
+    /// Ports the current library leaves unused. They are shown faded and
+    /// cannot start or finish a new pipe.
+    var deadPorts: Set<Port> { library.current.deadPorts }
+
     /// The pipe kinds the current library allows, in palette order.
     var allowedKinds: [PipeKind] {
         PipeKind.allCases.filter(library.current.allowedKinds.contains)
@@ -94,6 +98,10 @@ final class EditorModel {
             return
         }
         selectedPipe = nil
+        guard !deadPorts.contains(port) else {
+            message = "That port is switched off in this library."
+            return
+        }
         if kind.isDeadEnd {
             // A dead end needs only the one port, so a single tap places it.
             _ = place(from: port, to: port)
@@ -112,12 +120,12 @@ final class EditorModel {
     /// Called as a drag that began on `start` moves; `hover` is the port
     /// nearest the finger, if any.
     func drag(from start: Port?, to hover: Port?) {
-        guard !kind.isDeadEnd, let start, tile.pipe(at: start) == nil else { return }
+        guard !kind.isDeadEnd, let start, tile.pipe(at: start) == nil, !deadPorts.contains(start) else { return }
         if selectedPort != start {
             selectedPipe = nil
             select(port: start)
         }
-        guard let hover, hover != start, tile.pipe(at: hover) == nil else {
+        guard let hover, hover != start, tile.pipe(at: hover) == nil, !deadPorts.contains(hover) else {
             ghost = nil
             return
         }
@@ -182,7 +190,7 @@ final class EditorModel {
     func addRandomPipe() {
         var next = tile
         var generator = SystemRandomNumberGenerator()
-        if next.addRandomPipe(kinds: randomKinds, using: &generator) != nil {
+        if next.addRandomPipe(kinds: randomKinds, avoiding: deadPorts, using: &generator) != nil {
             commit(next)
         } else {
             message = "No room for another pipe."
@@ -192,7 +200,7 @@ final class EditorModel {
     func fillRandomly() {
         var next = tile
         var generator = SystemRandomNumberGenerator()
-        if next.fillRandomly(kinds: randomKinds, using: &generator) > 0 {
+        if next.fillRandomly(kinds: randomKinds, avoiding: deadPorts, using: &generator) > 0 {
             commit(next)
         } else {
             message = "No room for another pipe."
@@ -259,9 +267,11 @@ final class EditorModel {
     }
 
     private func refreshTargets() {
+        let dead = deadPorts
         if kind.isDeadEnd {
             validTargets = Set(tile.freePorts.filter {
-                PlacementRules.error(adding: Pipe(kind, at: $0), to: tile, coverage: coverage) == nil
+                !dead.contains($0)
+                    && PlacementRules.error(adding: Pipe(kind, at: $0), to: tile, coverage: coverage) == nil
             })
             return
         }
@@ -270,7 +280,7 @@ final class EditorModel {
             return
         }
         validTargets = Set(tile.freePorts.filter { candidate in
-            candidate != start
+            candidate != start && !dead.contains(candidate)
                 && PlacementRules.error(adding: Pipe(kind, a: start, b: candidate), to: tile, coverage: coverage) == nil
         })
     }

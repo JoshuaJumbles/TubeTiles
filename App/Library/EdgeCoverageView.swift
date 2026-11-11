@@ -13,8 +13,14 @@ struct EdgeCoverageView: View {
     private static let missing = TilePalette.negative
 
     var body: some View {
-        let patterns = EdgeCode.allPatterns(portsPerEdge: library.portsPerEdge)
         let counts = library.edgePatternCounts
+        // A pattern that needs a switched-off port is not one the library is
+        // trying to cover, so it is only listed if some tile has it anyway.
+        let width = library.portsPerEdge
+        let deadMask = (library.deadSlots ?? []).reduce(0) { $0 | (1 << (width - 1 - $1)) }
+        let patterns = EdgeCode.allPatterns(portsPerEdge: width).filter {
+            $0 & deadMask == 0 || counts[$0] != nil
+        }
         let coveredCount = patterns.filter { counts[$0] != nil }.count
         let busiest = max(1, counts.values.max() ?? 1)
 

@@ -119,12 +119,14 @@ struct LibraryView: View {
                     existing: nil,
                     suggestedName: library.unusedName("New library"),
                     suggestedPorts: current.portsPerEdge
-                ) { name, note, ports, kinds in
-                    _ = try? library.create(name: name, note: note, portsPerEdge: ports, allowedKinds: kinds)
+                ) { name, note, ports, kinds, dead in
+                    _ = try? library.create(
+                        name: name, note: note, portsPerEdge: ports, allowedKinds: kinds, deadSlots: dead
+                    )
                 }
             case let .existing(target):
-                LibraryEditorView(existing: target) { name, note, _, kinds in
-                    try? library.update(id: target.id, name: name, note: note, allowedKinds: kinds)
+                LibraryEditorView(existing: target) { name, note, _, kinds, dead in
+                    try? library.update(id: target.id, name: name, note: note, allowedKinds: kinds, deadSlots: dead)
                 }
             }
         }
@@ -241,6 +243,7 @@ struct LibraryView: View {
     private func summary(for tiles: TileLibrary, shownGroups: Int) -> some View {
         let total = tiles.tilesByProfile.count
         let off = tiles.offPaletteTiles.count
+        let onDeadPorts = tiles.deadPortTiles.count
         let kinds = PipeKind.allCases.filter(tiles.allowedKinds.contains)
         return VStack(alignment: .leading, spacing: 4) {
             Text(tiles.name)
@@ -256,7 +259,7 @@ struct LibraryView: View {
             Text("^[\(tiles.tiles.count) tile](inflect: true) in ^[\(total) profile](inflect: true)")
                 .font(.headline)
                 .foregroundStyle(Color.primary)
-            Text("\(tiles.portsPerEdge) ports per edge" + (filter == .all ? "" : " · showing \(shownGroups)"))
+            Text(portSummary(for: tiles) + (filter == .all ? "" : " · showing \(shownGroups)"))
                 .font(.subheadline)
                 .foregroundStyle(Color.secondary)
             Text(kinds.count == PipeKind.allCases.count
@@ -269,7 +272,18 @@ struct LibraryView: View {
                     .font(.subheadline)
                     .foregroundStyle(TilePalette.negative)
             }
+            if onDeadPorts > 0 {
+                Text("^[\(onDeadPorts) tile](inflect: true) use ports that are switched off.")
+                    .font(.subheadline)
+                    .foregroundStyle(TilePalette.negative)
+            }
         }
+    }
+
+    private func portSummary(for tiles: TileLibrary) -> String {
+        guard !tiles.deadPorts.isEmpty else { return "\(tiles.portsPerEdge) ports per edge" }
+        guard let live = tiles.liveSlotCount else { return "\(tiles.portsPerEdge) ports per edge, some switched off" }
+        return "\(live) of \(tiles.portsPerEdge) ports per edge in use"
     }
 
     private func groupHeader(_ title: String, badge: String?) -> some View {

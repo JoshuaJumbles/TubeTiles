@@ -2,10 +2,10 @@ import Foundation
 
 /// A named collection of tiles built to one port count and one look.
 ///
-/// A library carries the rules its tiles are meant to follow. For now that is
-/// which pipe kinds they use. The rules steer the editor and, above all, the
-/// tiles the generator makes up, so a maze grown from a library keeps that
-/// library's character.
+/// A library carries the rules its tiles are meant to follow: which pipe
+/// kinds they use, and which ports are left alone. The rules steer the editor
+/// and, above all, the tiles the generator makes up, so a maze grown from a
+/// library keeps that library's character.
 public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     public var id: UUID
     public var name: String
@@ -14,6 +14,12 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     public let portsPerEdge: Int
     /// The pipe kinds this library's tiles are meant to use.
     public var allowedKinds: Set<PipeKind>
+    /// Ports this library's tiles are meant to leave unused.
+    ///
+    /// Stored port by port so that a pattern could differ from edge to edge.
+    /// Today they are only ever set through `setDeadSlots`, which gives every
+    /// edge the same pattern, so any tile can still be turned or flipped.
+    public private(set) var deadPorts: Set<Port>
     public private(set) var tiles: [Tile]
 
     public init(
@@ -21,18 +27,21 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
         name: String,
         note: String = "",
         portsPerEdge: Int,
-        allowedKinds: Set<PipeKind> = Set(PipeKind.allCases)
+        allowedKinds: Set<PipeKind> = Set(PipeKind.allCases),
+        deadSlots: Set<Int> = []
     ) {
         self.id = id
         self.name = name
         self.note = note
         self.portsPerEdge = portsPerEdge
         self.allowedKinds = allowedKinds
+        self.deadPorts = []
         self.tiles = []
+        setDeadSlots(deadSlots)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, note, portsPerEdge, allowedKinds, tiles
+        case id, name, note, portsPerEdge, allowedKinds, deadPorts, tiles
     }
 
     /// Libraries saved before they had an identity, a note or rules load
@@ -46,6 +55,8 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
         portsPerEdge = ports
         allowedKinds = try container.decodeIfPresent(Set<PipeKind>.self, forKey: .allowedKinds)
             ?? Set(PipeKind.allCases)
+        deadPorts = Set((try container.decodeIfPresent([Port].self, forKey: .deadPorts) ?? [])
+            .filter { $0.isValid(portsPerEdge: ports) })
         tiles = try container.decode([Tile].self, forKey: .tiles).filter { $0.portsPerEdge == ports }
     }
 
@@ -57,6 +68,7 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
         try container.encode(portsPerEdge, forKey: .portsPerEdge)
         // In a fixed order, so saving the same library twice gives the same file.
         try container.encode(PipeKind.allCases.filter(allowedKinds.contains), forKey: .allowedKinds)
+        try container.encode(deadPorts.sorted(), forKey: .deadPorts)
         try container.encode(tiles, forKey: .tiles)
     }
 
@@ -75,6 +87,53 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     /// Whether every pipe of `tile` is of an allowed kind.
     public func allows(_ tile: Tile) -> Bool {
         tile.pipes.allSatisfy { allowedKinds.contains($0.kind) }
+    }
+
+    // MARK: Dead ports
+
+    public func isLive(_ port: Port) -> Bool {
+        !deadPorts.contains(port)
+    }
+
+    /// The slots that are dead on every edge alike, or nil if the pattern
+    /// differs between edges.
+    public var deadSlots: Set<Int>? {
+        let perEdge = (0..<HexGeometry.edgeCount).map { edge in
+            Set(deadPorts.filter { $0.edge == edge }.map(\.slot))
+        }
+        return perEdge.allSatisfy { $0 == perEdge[0] } ? perEdge[0] : nil
+    }
+
+    /// Makes the given slots dead on all six edges.
+    ///
+    /// A slot's mirror image is made dead with it. Flipping a tile reverses
+    /// the order of the ports along each edge, so without this a flipped tile
+    /// could land a pipe on a dead port.
+    public mutating func setDeadSlots(_ slots: some Sequence<Int>) {
+        var mirrored: Set<Int> = []
+        for slot in slots where (0..<portsPerEdge).contains(slot) {
+            mirrored.insert(slot)
+            mirrored.insert(portsPerEdge - 1 - slot)
+        }
+        deadPorts = Set((0..<HexGeometry.edgeCount).flatMap { edge in
+            mirrored.map { Port(edge: edge, slot: $0) }
+        })
+    }
+
+    /// How many ports per edge are still in use, when every edge is alike.
+    public var liveSlotCount: Int? {
+        deadSlots.map { portsPerEdge - $0.count }
+    }
+
+    /// Whether any pipe of `tile` ends on a dead port.
+    public func usesDeadPort(_ tile: Tile) -> Bool {
+        !tile.occupiedPorts.isDisjoint(with: deadPorts)
+    }
+
+    /// Tiles with a pipe on a port that is now dead. Like tiles of a kind
+    /// that has been switched off, they stay and are still used.
+    public var deadPortTiles: [Tile] {
+        tiles.filter(usesDeadPort)
     }
 
     /// Tiles that use a kind the library no longer allows. They stay in the
@@ -107,6 +166,7 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     /// tiles, for branching a style.
     public func duplicated(named name: String) -> TileLibrary {
         var copy = TileLibrary(name: name, note: note, portsPerEdge: portsPerEdge, allowedKinds: allowedKinds)
+        copy.deadPorts = deadPorts
         copy.tiles = tiles.map { tile in
             var twin = tile
             twin.id = UUID()

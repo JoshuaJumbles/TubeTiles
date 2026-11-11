@@ -59,7 +59,11 @@ struct MazeCanvas: View {
             .onTapGesture { location in
                 if let cell = layout.cell(at: location, in: maze) {
                     model.tap(cell.coord, local: cell.local)
-                } else if let port = layout.outlinePort(at: location, in: maze) {
+                } else if let port = layout.outlinePort(
+                    at: location, in: maze,
+                    // An existing opening can always be tapped to remove it.
+                    allowed: { maze.openings.contains($0) || model.allowsOpening(at: $0) }
+                ) {
                     // Just outside the outline: an entrance or exit.
                     model.toggleOpening(port)
                 } else {

@@ -44,15 +44,22 @@ enum SampleData {
         }
 
         // Libraries built to a look: one of curves only, one of corners only.
-        for (name, note, kinds) in [
-            ("Curves only", "Soft and looping. No corners, no rooms.", Set<PipeKind>([.bezier, .endMedium])),
-            ("Angular", "Straight runs and sharp corners.", Set<PipeKind>([.corner, .endSmall])),
+        // The curves library also keeps to the middle four ports of each
+        // edge, which draws its pipes together.
+        for (name, note, kinds, dead) in [
+            ("Curves only", "Soft and looping. No corners, no rooms. Middle four ports.",
+             Set<PipeKind>([.bezier, .endMedium]), Set<Int>([0])),
+            ("Angular", "Straight runs and sharp corners.", Set<PipeKind>([.corner, .endSmall]), Set<Int>()),
         ] {
-            let styled = try? model.create(name: name, note: note, portsPerEdge: 6, allowedKinds: kinds)
+            let styled = try? model.create(
+                name: name, note: note, portsPerEdge: 6, allowedKinds: kinds, deadSlots: dead
+            )
             for _ in 0..<12 {
                 var tile = Tile(portsPerEdge: 6)
                 for _ in 0..<Int.random(in: 2...4, using: &generator) {
-                    tile.addRandomPipe(kinds: kinds.filter { !$0.isDeadEnd }, using: &generator)
+                    tile.addRandomPipe(
+                        kinds: kinds.filter { !$0.isDeadEnd }, avoiding: styled?.deadPorts ?? [], using: &generator
+                    )
                 }
                 if !tile.pipes.isEmpty { try? model.save(tile, to: styled?.id) }
             }

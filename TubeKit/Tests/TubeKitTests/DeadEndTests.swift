@@ -214,7 +214,6 @@ private func port(_ edge: Int, _ slot: Int) -> TubeKit.Port { TubeKit.Port(edge:
             #expect(maze.cells[.origin]?.oriented.deadEnds.count == 1)
             let paths = maze.paths
             #expect(paths.paths.filter { !$0.isClosed }.count == 1)
-            #expect(maze.weave().conflicts == 0)
             if paths.paths.count == 1 {
                 single += 1
                 let pipeCount = maze.cells.values.reduce(0) { $0 + $1.oriented.pipes.count }
@@ -224,6 +223,23 @@ private func port(_ edge: Int, _ slot: Int) -> TubeKit.Port { TubeKit.Port(edge:
             }
         }
         #expect(single >= 4)
+    }
+
+    /// A path that ends inside the maze cannot always alternate over and
+    /// under: where a loop of the path encloses the end, some crossing has to
+    /// repeat. The weave settles for as few of those as it finds, and mazes
+    /// without a goal are unaffected.
+    @Test func aGoalCanCostAFewCrossingsTheirAlternation() {
+        var worst = 0
+        for seed in 0..<12 {
+            var (maze, generator) = labyrinth(seed: UInt64(seed))
+            var random = SeededGenerator(seed: UInt64(seed))
+            LoopMerger(generator: generator).mergeAll(&maze, using: &random)
+            let weave = maze.weave()
+            worst = max(worst, weave.conflicts)
+            #expect(weave.conflicts * 3 <= max(weave.crossings.count, 3))
+        }
+        #expect(worst <= 6)
     }
 
     @Test func twoGoalsMakeAPathFromRoomToRoom() throws {
@@ -341,5 +357,119 @@ private func port(_ edge: Int, _ slot: Int) -> TubeKit.Port { TubeKit.Port(edge:
         let permitted = allowed.union(library.deadEndKinds.isEmpty ? Set(PipeKind.deadEndKinds) : [])
         #expect(used.isSubset(of: permitted), "used \(used)")
         #expect(!used.isDisjoint(with: allowed))
+    }
+}
+
+@Suite struct DeadPortTests {
+    @Test func deadSlotsApplyToEveryEdgeAndAreMirrored() {
+        var library = TileLibrary(name: "Narrow", portsPerEdge: 6)
+        #expect(library.deadPorts.isEmpty)
+        #expect(library.deadSlots == [])
+        #expect(library.liveSlotCount == 6)
+
+        // Switching off the first slot also switches off the last.
+        library.setDeadSlots([0])
+        #expect(library.deadSlots == [0, 5])
+        #expect(library.deadPorts.count == 12)
+        #expect(library.liveSlotCount == 4)
+        #expect(!library.isLive(port(3, 5)))
+        #expect(library.isLive(port(3, 2)))
+
+        // Out-of-range slots are ignored, and setting replaces what was there.
+        library.setDeadSlots([2, 9])
+        #expect(library.deadSlots == [2, 3])
+    }
+
+    /// The reason for mirroring: a tile that avoids the dead ports still
+    /// avoids them however it is turned or flipped.
+    @Test func liveTilesStayLiveUnderEveryPlacement() throws {
+        let library = TileLibrary(name: "Narrow", portsPerEdge: 6, deadSlots: [0])
+        let tile = try Tile(portsPerEdge: 6, pipes: [
+            Pipe(.bezier, a: port(0, 1), b: port(2, 4)),
+            Pipe(.corner, a: port(1, 2), b: port(4, 3)),
+        ])
+        #expect(!library.usesDeadPort(tile))
+        for transform in TileTransform.allCases {
+            #expect(!library.usesDeadPort(tile.transformed(by: transform)))
+        }
+        // And what it asks of a neighbour is live too.
+        for used in tile.occupiedPorts {
+            #expect(library.isLive(used.neighbourPort(portsPerEdge: 6)))
+        }
+    }
+
+    @Test func deadPortsSurviveSavingAndOlderFilesHaveNone() throws {
+        var library = TileLibrary(name: "Narrow", portsPerEdge: 5, deadSlots: [0])
+        let onDead = try Tile(portsPerEdge: 5, pipes: [Pipe(.bezier, a: port(0, 0), b: port(2, 2))])
+        library.save(onDead)
+        #expect(library.deadPortTiles.map(\.id) == [onDead.id])
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(library)
+        let loaded = try JSONDecoder().decode(TileLibrary.self, from: data)
+        #expect(loaded == library)
+        #expect(loaded.deadSlots == [0, 4])
+        #expect(try encoder.encode(loaded) == data)
+        #expect(library.duplicated(named: "Copy").deadPorts == library.deadPorts)
+
+        let older = #"{"name":"Old","portsPerEdge":4,"tiles":[]}"#
+        #expect(try JSONDecoder().decode(TileLibrary.self, from: Data(older.utf8)).deadPorts.isEmpty)
+    }
+
+    @Test func aPatternThatDiffersByEdgeIsNotUniform() throws {
+        // Per-edge patterns are not offered yet, but the stored form allows
+        // them, and a library holding one says so.
+        let json = #"{"name":"Odd","portsPerEdge":4,"tiles":[],"deadPorts":[{"edge":0,"slot":1}]}"#
+        let library = try JSONDecoder().decode(TileLibrary.self, from: Data(json.utf8))
+        #expect(library.deadPorts == [port(0, 1)])
+        #expect(library.deadSlots == nil)
+        #expect(library.liveSlotCount == nil)
+    }
+
+    @Test func randomFillKeepsOffDeadPorts() {
+        let library = TileLibrary(name: "Narrow", portsPerEdge: 6, deadSlots: [0, 1])
+        for seed in 0..<6 {
+            var random = SeededGenerator(seed: UInt64(seed))
+            var tile = Tile(portsPerEdge: 6)
+            let added = tile.fillRandomly(avoiding: library.deadPorts, using: &random)
+            #expect(added > 0)
+            #expect(!library.usesDeadPort(tile))
+        }
+    }
+
+    /// Made-up tiles never put a pipe on a dead port: through growing from
+    /// an entrance, placing a goal, and merging.
+    @Test(arguments: [Set<Int>([0]), [0, 1], [2]])
+    func madeUpTilesKeepOffDeadPorts(deadSlots: Set<Int>) throws {
+        let library = TileLibrary(name: "Narrow", portsPerEdge: 6, deadSlots: deadSlots)
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6, following: library))
+        let entrance = try #require((0..<6).map { port(0, $0) }.first(where: library.isLive))
+        for seed in 0..<3 {
+            var random = SeededGenerator(seed: UInt64(seed))
+            var maze = Maze(portsPerEdge: 6, radius: 3)
+            maze.setOpenings([PortRef(coord: HexCoord(q: 0, r: -3), port: entrance)])
+            maze.setGoals([.origin])
+            #expect(generator.fill(&maze, symmetry: .none, using: &random), "seed \(seed)")
+            LoopMerger(generator: generator).mergeAll(&maze, using: &random)
+            #expect(maze.isSealed)
+            #expect(maze.cells.count > 6)
+            for placed in maze.cells.values {
+                #expect(!library.usesDeadPort(placed.oriented))
+            }
+        }
+    }
+
+    @Test func aPipeArrivingOnADeadPortIsStillMet() throws {
+        // A hand-made tile may use a dead port. Its neighbour has to join up
+        // with it regardless, or the maze could never be sealed.
+        let library = TileLibrary(name: "Narrow", portsPerEdge: 4, deadSlots: [0])
+        let onDead = try Tile(portsPerEdge: 4, pipes: [Pipe(.bezier, a: port(3, 0), b: port(3, 3))])
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0, following: library))
+        var random = SeededGenerator(seed: 1)
+        var maze = Maze(portsPerEdge: 4, radius: 2)
+        maze = try #require(maze.placing(PlacedTile(onDead), at: .origin))
+        #expect(generator.fill(&maze, symmetry: .none, using: &random))
+        #expect(maze.isSealed)
     }
 }

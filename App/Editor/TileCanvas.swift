@@ -22,6 +22,7 @@ struct TileCanvas: View {
             let selectedPipe = model.selectedPipe
             let validTargets = model.validTargets
             let highlightsTargets = model.highlightsTargets
+            let deadPorts = model.deadPorts
             let ghost = model.ghost
 
             Canvas { context, _ in
@@ -61,6 +62,12 @@ struct TileCanvas: View {
                         let center = frame.point(HexGeometry.position(of: port, portsPerEdge: tile.portsPerEdge))
                         func dot(_ radius: CGFloat) -> Path {
                             Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+                        }
+                        if deadPorts.contains(port) {
+                            // Switched off in this library: a faint ring, so
+                            // it is clear the port exists but is not in use.
+                            context.stroke(dot(3), with: .color(Self.outline.opacity(0.3)), lineWidth: 1)
+                            continue
                         }
                         if port == selectedPort {
                             context.fill(dot(7), with: .color(.accentColor))
@@ -109,9 +116,14 @@ struct TileCanvas: View {
         let point = frame.tilePoint(location)
         let count = model.tile.portsPerEdge
         var best: (port: Port, distance: Double)?
+        let deadPorts = model.deadPorts
         for edge in 0..<HexGeometry.edgeCount {
             for slot in 0..<count {
                 let port = Port(edge: edge, slot: slot)
+                // A dead port takes no touches, so a tap beside one reaches
+                // the nearest live port instead. One that already holds a
+                // pipe can still be tapped to select that pipe.
+                if deadPorts.contains(port), model.tile.pipe(at: port) == nil { continue }
                 let distance = HexGeometry.position(of: port, portsPerEdge: count).distance(to: point)
                 if distance < (best?.distance ?? 0.3) {
                     best = (port, distance)
