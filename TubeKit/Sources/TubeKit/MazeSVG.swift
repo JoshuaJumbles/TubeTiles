@@ -8,6 +8,7 @@ import Foundation
 /// - `walls`: every path as one continuous line, at full pipe width.
 /// - `tubes`: the same lines again, narrower, forming the pipe interiors.
 /// - `rooms`: the circular rooms.
+/// - `openings`: the open pipe ends at the entrance and exit, if any.
 /// - `crossings`: a short piece of the upper pipe at each crossing, drawn
 ///   last so it bridges the pipe beneath.
 ///
@@ -29,6 +30,10 @@ public enum MazeSVG {
 
         public init() {}
     }
+
+    /// How far the pipe at an opening sticks out past the outline, in tile
+    /// units.
+    public static let openingLength = 0.3
 
     public static func render(_ maze: Maze, options: Options = Options()) -> String {
         let style = TileStyle(portsPerEdge: maze.portsPerEdge)
@@ -132,6 +137,25 @@ public enum MazeSVG {
             }
         }
         lines.append("  </g>")
+
+        // A short length of open pipe outside the outline at each opening.
+        if !maze.openings.isEmpty {
+            lines.append(#"  <g id="openings" fill="none" stroke-linecap="butt">"#)
+            for opening in maze.openings.sorted(by: { ($0.coord, $0.port) < ($1.coord, $1.port) }) {
+                let start = HexGeometry.position(of: opening.port, portsPerEdge: maze.portsPerEdge)
+                let outward = HexGeometry.inwardDirection(edge: opening.port.edge) * -1
+                let end = start + outward * MazeSVG.openingLength
+                let mouth = start + outward * (MazeSVG.openingLength + style.wallThickness)
+                let index = paths.index(of: opening)
+                lines.append(
+                    #"    <path stroke="\#(options.ink)" stroke-width="\#(outer)" d="M \#(text(place(start, in: opening.coord))) L \#(text(place(end, in: opening.coord)))"/>"#
+                )
+                lines.append(
+                    #"    <path stroke="\#(tubeColor(index))" stroke-width="\#(inner)" d="M \#(text(place(start, in: opening.coord))) L \#(text(place(mouth, in: opening.coord)))"/>"#
+                )
+            }
+            lines.append("  </g>")
+        }
 
         lines.append(#"  <g id="crossings" fill="none" stroke-linecap="butt" stroke-linejoin="round">"#)
         for crossing in weave.crossings {

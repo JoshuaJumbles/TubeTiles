@@ -253,6 +253,14 @@ public struct MazeGenerator: Sendable {
             maze = next
             return .placed(target)
         }
+        // Openings rarely respect the symmetry: an entrance on one side has
+        // no twin on the other. Once a maze has any, symmetry is kept where a
+        // symmetric placement works and dropped, cell by cell, where not.
+        if symmetry != .none, !maze.openings.isEmpty,
+           let next = placingRandomTile(in: maze, at: target, symmetry: .none, using: &generator) {
+            maze = next
+            return .placed(target)
+        }
 
         // Nothing fits. Clear the tiles around the cell so the area can
         // regrow differently; taking out just one tends to rebuild the same

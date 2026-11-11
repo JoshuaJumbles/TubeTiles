@@ -34,12 +34,16 @@ public struct PlacedTile: Hashable, Sendable, Codable {
 /// Tiles laid out on a hexagonal region of the grid.
 ///
 /// The region is every cell within `radius` rings of the origin. Its outline
-/// is sealed: no pipe may point out of it. Inside, a cell may be empty, and
-/// an empty cell is fine as long as no neighbouring pipe points into it.
+/// is sealed: no pipe may point out of it, except through an opening. Inside,
+/// a cell may be empty, and an empty cell is fine as long as no neighbouring
+/// pipe points into it.
 public struct Maze: Hashable, Sendable, Codable {
     public let portsPerEdge: Int
     public let radius: Int
     public private(set) var cells: [HexCoord: PlacedTile] = [:]
+    /// Ports on the outline where a pipe is required to leave the region:
+    /// the entrance and exit of an open path.
+    public private(set) var openings: Set<PortRef> = []
 
     public init(portsPerEdge: Int, radius: Int) {
         self.portsPerEdge = portsPerEdge
@@ -59,11 +63,47 @@ public struct Maze: Hashable, Sendable, Codable {
 
     public var cellCount: Int { 3 * radius * (radius + 1) + 1 }
 
+    /// Whether `ref` is a port on the outline, facing out of the region.
+    public func isOnOutline(_ ref: PortRef) -> Bool {
+        contains(ref.coord) && ref.port.isValid(portsPerEdge: portsPerEdge)
+            && !contains(ref.coord.neighbour(across: ref.port.edge))
+    }
+
+    /// Every port on the outline, going round the region.
+    public var outlinePorts: [PortRef] {
+        coords.flatMap { coord in
+            (0..<HexGeometry.edgeCount).flatMap { edge in
+                (0..<portsPerEdge).map { PortRef(coord: coord, port: Port(edge: edge, slot: $0)) }
+            }
+        }.filter(isOnOutline)
+    }
+
+    /// Replaces the openings. Ports that are not on the outline are ignored.
+    /// A tile that no longer fits its cell, because an opening beside it was
+    /// added or removed, is taken out so the cell can be regrown.
+    public mutating func setOpenings(_ refs: some Sequence<PortRef>) {
+        let next = Set(refs.filter(isOnOutline))
+        let touched = Set(openings.symmetricDifference(next).map(\.coord))
+        openings = next
+        for coord in touched {
+            if let placed = cells[coord], !fits(placed.code, at: coord) {
+                cells[coord] = nil
+            }
+        }
+    }
+
     /// The value a tile at `coord` must show on `edge`, or nil if anything
-    /// goes: 0 on the outline, and whatever a placed neighbour needs.
+    /// goes: on the outline, exactly the openings there (usually none), and
+    /// otherwise whatever a placed neighbour needs.
     public func requirement(at coord: HexCoord, edge: Int) -> Int? {
         let neighbour = coord.neighbour(across: edge)
-        guard contains(neighbour) else { return 0 }
+        guard contains(neighbour) else {
+            var value = 0
+            for opening in openings where opening.coord == coord && opening.port.edge == edge {
+                value |= 1 << (portsPerEdge - 1 - opening.port.slot)
+            }
+            return value
+        }
         guard let placed = cells[neighbour] else { return nil }
         return placed.code.requiredNeighbourValue(forEdge: (edge + 3) % HexGeometry.edgeCount)
     }
@@ -135,6 +175,7 @@ public struct Maze: Hashable, Sendable, Codable {
         }
     }
 
+    /// Removes every tile. Openings stay where they are.
     public mutating func removeAll() {
         cells.removeAll()
     }
