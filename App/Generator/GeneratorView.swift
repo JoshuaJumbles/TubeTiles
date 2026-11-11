@@ -193,15 +193,15 @@ private struct GeneratorPanel: View {
 
             DisclosureGroup("Options", isExpanded: $showsOptions) {
                 VStack(alignment: .leading, spacing: 14) {
-                    if model.portChoices.count > 1 {
-                        LabeledContent("Tiles") {
-                            Picker("Tiles", selection: Binding(
-                                get: { model.portsPerEdge }, set: { model.setPortsPerEdge($0) }
-                            )) {
-                                ForEach(model.portChoices, id: \.self) { Text("\($0) ports per edge").tag($0) }
+                    LabeledContent("Library") {
+                        Picker("Library", selection: Binding(
+                            get: { model.currentLibrary.id }, set: { model.chooseLibrary($0) }
+                        )) {
+                            ForEach(model.libraries) { library in
+                                Text("\(library.name) · \(library.portsPerEdge) ports").tag(library.id)
                             }
-                            .pickerStyle(.menu)
                         }
+                        .pickerStyle(.menu)
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
@@ -240,7 +240,16 @@ private struct GeneratorPanel: View {
                     }
                     .buttonStyle(.bordered)
 
-                    Toggle("Make up tiles the library lacks", isOn: $model.allowsGeneratedTiles)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Make up tiles the library lacks", isOn: $model.allowsGeneratedTiles)
+                        if model.allowsGeneratedTiles, let library = model.activeLibrary,
+                           library.allowedKinds.count < PipeKind.allCases.count {
+                            Text("Made-up tiles use only this library's kinds: "
+                                + PipeKind.allCases.filter(library.allowedKinds.contains).map(\.shortTitle).joined(separator: ", ") + ".")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
 
                     if model.allowsGeneratedTiles {
                         VStack(alignment: .leading, spacing: 2) {
@@ -259,7 +268,11 @@ private struct GeneratorPanel: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("^[\(model.libraryTileCount) tile](inflect: true) in the \(model.portsPerEdge)-port library")
+                if model.activeLibrary != nil {
+                    Text("^[\(model.libraryTileCount) tile](inflect: true) in \u{201C}\(model.currentLibrary.name)\u{201D}")
+                } else {
+                    Text("\u{201C}\(model.currentLibrary.name)\u{201D} has \(model.currentLibrary.portsPerEdge) ports per edge and this maze has \(model.portsPerEdge), so its tiles are not used here.")
+                }
                 if !model.maze.cells.isEmpty {
                     Text("\(model.maze.cells.count - model.generatedTileCount) from the library, \(model.generatedTileCount) made up")
                 }

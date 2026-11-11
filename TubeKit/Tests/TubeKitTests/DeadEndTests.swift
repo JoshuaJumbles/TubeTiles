@@ -263,3 +263,83 @@ private func port(_ edge: Int, _ slot: Int) -> TubeKit.Port { TubeKit.Port(edge:
         #expect(!svg.contains("nan"))
     }
 }
+
+@Suite struct LibraryRuleTests {
+    @Test func olderLibraryFilesStillLoad() throws {
+        // As written before libraries had an identity, a note or rules.
+        let json = #"{"name":"6 ports","portsPerEdge":4,"tiles":[{"id":"00000000-0000-0000-0000-000000000001","portsPerEdge":4,"pipes":[{"kind":"bezier","a":{"edge":0,"slot":0},"b":{"edge":2,"slot":3}}]}]}"#
+        let library = try JSONDecoder().decode(TileLibrary.self, from: Data(json.utf8))
+        #expect(library.name == "6 ports")
+        #expect(library.note.isEmpty)
+        #expect(library.allowedKinds == Set(PipeKind.allCases))
+        #expect(library.tiles.count == 1)
+    }
+
+    @Test func rulesSurviveSavingAndStayStable() throws {
+        var library = TileLibrary(name: "Curves", note: "Soft and loopy", portsPerEdge: 4, allowedKinds: [.bezier, .endSmall])
+        library.save(try Tile(portsPerEdge: 4, pipes: [Pipe(.bezier, a: port(0, 0), b: port(2, 3))]))
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(library)
+        let loaded = try JSONDecoder().decode(TileLibrary.self, from: data)
+        #expect(loaded == library)
+        #expect(try encoder.encode(loaded) == data)
+        #expect(loaded.throughKinds == [.bezier])
+        #expect(loaded.deadEndKinds == [.endSmall])
+    }
+
+    @Test func aLibraryKnowsWhichTilesBreakItsRules() throws {
+        var library = TileLibrary(name: "Curves", portsPerEdge: 4, allowedKinds: [.bezier])
+        let curve = try Tile(portsPerEdge: 4, pipes: [Pipe(.bezier, a: port(0, 0), b: port(2, 3))])
+        let corner = try Tile(portsPerEdge: 4, pipes: [Pipe(.corner, a: port(0, 0), b: port(2, 3))])
+        library.save(curve)
+        library.save(corner)
+        #expect(library.allows(curve))
+        #expect(!library.allows(corner))
+        #expect(library.offPaletteTiles.map(\.id) == [corner.id])
+    }
+
+    @Test func duplicatingCopiesRulesAndGivesTilesNewIdentities() throws {
+        var library = TileLibrary(name: "Curves", note: "n", portsPerEdge: 4, allowedKinds: [.bezier])
+        library.save(try Tile(portsPerEdge: 4, pipes: [Pipe(.bezier, a: port(0, 0), b: port(2, 3))]))
+        let copy = library.duplicated(named: "Curves 2")
+        #expect(copy.id != library.id)
+        #expect(copy.name == "Curves 2")
+        #expect(copy.allowedKinds == library.allowedKinds)
+        #expect(copy.tiles.map(\.pipes) == library.tiles.map(\.pipes))
+        #expect(copy.tiles.map(\.id) != library.tiles.map(\.id))
+    }
+
+    @Test func weightedKindsKeepToWhatIsAllowed() {
+        #expect(Set(TileSynthesizer.kinds(allowing: [.bezier, .roomSmall, .endLarge])) == [.bezier, .roomSmall])
+        // None of the usual kinds allowed: fall back to whatever is.
+        #expect(TileSynthesizer.kinds(allowing: [.roomLarge, .endSmall]) == [.roomLarge])
+        #expect(TileSynthesizer.kinds(allowing: [.endSmall]).isEmpty)
+    }
+
+    /// The point of the rules: tiles the generator makes up use only the
+    /// library's kinds, through growing, a goal, and merging.
+    @Test(arguments: [Set<PipeKind>([.bezier]), [.corner], [.bezier, .roomSmall, .endMedium]])
+    func madeUpTilesFollowTheLibrary(allowed: Set<PipeKind>) throws {
+        let library = TileLibrary(name: "Rules", portsPerEdge: 4, allowedKinds: allowed)
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6, following: library))
+        var used: Set<PipeKind> = []
+        for seed in 0..<3 {
+            var random = SeededGenerator(seed: UInt64(seed))
+            var maze = Maze(portsPerEdge: 4, radius: 3)
+            maze.setOpenings([PortRef(coord: HexCoord(q: 0, r: -3), port: port(0, 1))])
+            maze.setGoals([.origin])
+            generator.fill(&maze, symmetry: .none, using: &random)
+            LoopMerger(generator: generator).mergeAll(&maze, using: &random)
+            #expect(!maze.cells.isEmpty)
+            for placed in maze.cells.values {
+                used.formUnion(placed.oriented.pipes.map(\.kind))
+            }
+        }
+        // A goal always needs a dead end; if the library allows none, any
+        // size may be used for it, and only for it.
+        let permitted = allowed.union(library.deadEndKinds.isEmpty ? Set(PipeKind.deadEndKinds) : [])
+        #expect(used.isSubset(of: permitted), "used \(used)")
+        #expect(!used.isDisjoint(with: allowed))
+    }
+}

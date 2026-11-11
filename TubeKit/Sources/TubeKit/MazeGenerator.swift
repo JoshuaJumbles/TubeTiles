@@ -14,11 +14,32 @@ public struct MazeGenerator: Sendable {
         /// it. 0 only ever closes off what is open; higher values keep the
         /// maze spreading towards the outline.
         public var growth: Double
+        /// Pipe kinds made-up tiles may use; repeats make a kind more likely.
         public var kinds: [PipeKind]
+        /// Room sizes to try for a goal, in order.
+        public var deadEndKinds: [PipeKind]
 
-        public init(growth: Double = 0.5, kinds: [PipeKind] = TileSynthesizer.defaultKinds) {
+        public init(
+            growth: Double = 0.5,
+            kinds: [PipeKind] = TileSynthesizer.defaultKinds,
+            deadEndKinds: [PipeKind] = PipeKind.deadEndKinds
+        ) {
             self.growth = growth
             self.kinds = kinds
+            self.deadEndKinds = deadEndKinds
+        }
+
+        /// Made-up tiles that keep to a library's rules, so they look like
+        /// they belong with its hand-made ones.
+        ///
+        /// A goal has to end in a room, so if the library allows no dead-end
+        /// kind at all, every size is tried for goals anyway.
+        public init(growth: Double = 0.5, following library: TileLibrary) {
+            self.init(
+                growth: growth,
+                kinds: TileSynthesizer.kinds(allowing: library.allowedKinds),
+                deadEndKinds: library.deadEndKinds.isEmpty ? PipeKind.deadEndKinds : library.deadEndKinds
+            )
         }
     }
 
@@ -188,7 +209,7 @@ public struct MazeGenerator: Sendable {
             ports.insert(Port(edge: edge, slot: middle))
         }
 
-        for kind in PipeKind.deadEndKinds {
+        for kind in synthesis.deadEndKinds {
             for port in ports.sorted().shuffled(using: &generator) {
                 if let tile = TileSynthesizer.tile(
                     portsPerEdge: count, ports: ports, deadEnd: (port, kind),

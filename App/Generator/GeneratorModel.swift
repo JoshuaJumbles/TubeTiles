@@ -67,11 +67,7 @@ final class GeneratorModel {
             kept = working.kept
             documentID = archive.maze(id: working.documentID)?.id
         } else {
-            let counts = library.portCounts
-            let fullest = counts.max {
-                library.library(portsPerEdge: $0).tiles.count < library.library(portsPerEdge: $1).tiles.count
-            }
-            start = Maze(portsPerEdge: fullest ?? 6, radius: 3)
+            start = Maze(portsPerEdge: library.current.portsPerEdge, radius: 3)
         }
         maze = start
         paths = start.paths
@@ -166,13 +162,16 @@ final class GeneratorModel {
     var portsPerEdge: Int { maze.portsPerEdge }
     var radius: Int { maze.radius }
     var openCells: [HexCoord] { maze.openCells }
-    var libraryTileCount: Int { library.library(portsPerEdge: portsPerEdge).tiles.count }
-    var generatedTileCount: Int { maze.cells.values.filter(\.isGenerated).count }
-
-    /// Port counts worth offering: any with saved tiles, plus the current one.
-    var portChoices: [Int] {
-        Array(Set(library.portCounts + [portsPerEdge])).sorted()
+    /// The library the generator draws from: the current one, provided its
+    /// tiles have the same port count as the maze.
+    var activeLibrary: TileLibrary? {
+        library.current.portsPerEdge == portsPerEdge ? library.current : nil
     }
+
+    var currentLibrary: TileLibrary { library.current }
+    var libraries: [TileLibrary] { library.libraries }
+    var libraryTileCount: Int { activeLibrary?.tiles.count ?? 0 }
+    var generatedTileCount: Int { maze.cells.values.filter(\.isGenerated).count }
 
     /// The maze as a drawing to share. Path colours are included while they
     /// are shown on screen; otherwise the tubes are plain white.
@@ -203,10 +202,19 @@ final class GeneratorModel {
         return "Sealed · \(maze.cells.count) tiles · " + what
     }
 
+    /// How tiles are made up: in the library's kinds when it applies to
+    /// this maze, so they match its hand-made tiles.
+    private var synthesis: MazeGenerator.Synthesis {
+        if let activeLibrary {
+            return .init(growth: growth, following: activeLibrary)
+        }
+        return .init(growth: growth)
+    }
+
     private var generator: MazeGenerator {
         MazeGenerator(
-            tiles: library.library(portsPerEdge: portsPerEdge).tiles,
-            synthesis: allowsGeneratedTiles ? .init(growth: growth) : nil
+            tiles: activeLibrary?.tiles ?? [],
+            synthesis: allowsGeneratedTiles ? synthesis : nil
         )
     }
 
@@ -217,13 +225,32 @@ final class GeneratorModel {
         reset(portsPerEdge: portsPerEdge, radius: radius)
     }
 
-    func setPortsPerEdge(_ count: Int) {
-        guard count != portsPerEdge else { return }
-        reset(portsPerEdge: count, radius: radius)
+    /// Switches the library the generator draws from. A maze keeps the port
+    /// count it was started with, so a library with a different count only
+    /// takes over an empty generator.
+    func chooseLibrary(_ id: UUID) {
+        library.select(id)
+        libraryChanged()
     }
 
+    /// Called when the current library changes, here or on another screen.
+    func libraryChanged() {
+        let current = library.current
+        guard current.portsPerEdge != portsPerEdge else {
+            message = nil
+            return
+        }
+        if maze.cells.isEmpty {
+            reset(portsPerEdge: current.portsPerEdge, radius: radius)
+        } else {
+            message = "This maze has \(portsPerEdge) ports per edge. Clear it to use \u{201C}\(current.name)\u{201D}, which has \(current.portsPerEdge)."
+        }
+    }
+
+    /// Empties the generator. The next maze takes its port count from the
+    /// current library.
     func clear() {
-        reset(portsPerEdge: portsPerEdge, radius: radius)
+        reset(portsPerEdge: library.current.portsPerEdge, radius: radius)
     }
 
     private func reset(portsPerEdge: Int, radius: Int) {

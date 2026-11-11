@@ -41,6 +41,12 @@ struct RootView: View {
                 .tag(Screen.editor)
 
             LibraryView(library: library) { tile, asCopy in
+                // Edit the tile in its own library, so saving puts it back
+                // where it came from.
+                if let home = library.home(of: tile) {
+                    library.select(home.id)
+                }
+                editor.libraryChanged()
                 editor.open(tile, asCopy: asCopy)
                 screen = .editor
             }
@@ -50,6 +56,12 @@ struct RootView: View {
             GeneratorView(model: generator, archive: archive)
                 .tabItem { Label("Generator", systemImage: "circle.hexagongrid") }
                 .tag(Screen.generator)
+        }
+        // Switching library, or editing its rules, on one screen has to
+        // reach the others.
+        .onChange(of: library.current) { _, _ in
+            editor.libraryChanged()
+            generator.libraryChanged()
         }
         .onChange(of: scenePhase) { _, phase in
             // Do not wait for the autosave delay when the app is leaving.

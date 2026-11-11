@@ -8,6 +8,14 @@ public enum TileSynthesizer {
     public static let defaultKinds: [PipeKind] =
         Array(repeating: .bezier, count: 8) + Array(repeating: .corner, count: 3) + [.roomSmall]
 
+    /// The kinds to draw from when only some are allowed, keeping the usual
+    /// balance between those that remain. If none of the usual ones are
+    /// allowed, every allowed kind that joins two ports is used evenly.
+    public static func kinds(allowing allowed: Set<PipeKind>) -> [PipeKind] {
+        let usual = defaultKinds.filter(allowed.contains)
+        return usual.isEmpty ? PipeKind.throughKinds.filter(allowed.contains) : usual
+    }
+
     /// A tile whose pipes use every port in `ports` once, or nil if no legal
     /// pairing was found within the search budget.
     ///

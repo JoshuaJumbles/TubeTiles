@@ -14,8 +14,6 @@ struct GhostPipe {
 @MainActor
 @Observable
 final class EditorModel {
-    static let portRange = 2...8
-
     private(set) var tile: Tile
     private(set) var kind: PipeKind = .bezier
     /// The free port a new pipe will start from.
@@ -31,17 +29,47 @@ final class EditorModel {
     private var redoStack: [Tile] = []
     private let library: LibraryModel
 
-    init(library: LibraryModel, portsPerEdge: Int = 6) {
+    init(library: LibraryModel) {
         self.library = library
-        let tile = Tile(portsPerEdge: portsPerEdge)
+        let tile = Tile(portsPerEdge: library.current.portsPerEdge)
         self.tile = tile
         coverage = CoverageMap(tile: tile)
+        kind = PipeKind.allCases.first(where: library.current.allowedKinds.contains) ?? .bezier
     }
 
     /// Whether the tile on the canvas is already in the library, so saving
     /// updates it rather than adding a new one.
     var isSaved: Bool { library.contains(tile) }
-    var savedTileCount: Int { library.library(portsPerEdge: tile.portsPerEdge).tiles.count }
+    var savedTileCount: Int { library.current.tiles.count }
+    var libraryName: String { library.current.name }
+    var libraryID: UUID { library.currentID }
+    var libraries: [TileLibrary] { library.libraries }
+
+    /// The pipe kinds the current library allows, in palette order.
+    var allowedKinds: [PipeKind] {
+        PipeKind.allCases.filter(library.current.allowedKinds.contains)
+    }
+
+    func chooseLibrary(_ id: UUID) {
+        library.select(id)
+        libraryChanged()
+    }
+
+    /// Brings the editor in line with the current library after it has been
+    /// switched or its rules edited: the right port count, and a pipe kind
+    /// the library allows.
+    func libraryChanged() {
+        let current = library.current
+        if tile.portsPerEdge != current.portsPerEdge {
+            // A tile cannot change port count, so start a fresh one.
+            undoStack.removeAll()
+            redoStack.removeAll()
+            apply(Tile(portsPerEdge: current.portsPerEdge))
+        }
+        if !current.allowedKinds.contains(kind), let first = allowedKinds.first {
+            choose(first)
+        }
+    }
 
     var style: TileStyle { TileStyle(portsPerEdge: tile.portsPerEdge) }
     /// Whether the canvas should mark which free ports are usable: the far
@@ -143,11 +171,6 @@ final class EditorModel {
         commit(Tile(portsPerEdge: tile.portsPerEdge))
     }
 
-    func setPortsPerEdge(_ count: Int) {
-        guard count != tile.portsPerEdge, Self.portRange.contains(count) else { return }
-        commit(Tile(portsPerEdge: count))
-    }
-
     /// Puts a library tile on the canvas. A copy gets a new identity, so
     /// saving it adds a tile instead of replacing the original.
     func open(_ saved: Tile, asCopy: Bool) {
@@ -159,7 +182,7 @@ final class EditorModel {
     func addRandomPipe() {
         var next = tile
         var generator = SystemRandomNumberGenerator()
-        if next.addRandomPipe(kinds: Self.randomKinds, using: &generator) != nil {
+        if next.addRandomPipe(kinds: randomKinds, using: &generator) != nil {
             commit(next)
         } else {
             message = "No room for another pipe."
@@ -169,7 +192,7 @@ final class EditorModel {
     func fillRandomly() {
         var next = tile
         var generator = SystemRandomNumberGenerator()
-        if next.fillRandomly(kinds: Self.randomKinds, using: &generator) > 0 {
+        if next.fillRandomly(kinds: randomKinds, using: &generator) > 0 {
             commit(next)
         } else {
             message = "No room for another pipe."
@@ -184,7 +207,7 @@ final class EditorModel {
         let wasSaved = isSaved
         do {
             try library.save(tile)
-            message = wasSaved ? "Updated in the library." : "Saved to the \(tile.portsPerEdge)-port library."
+            message = wasSaved ? "Updated in the library." : "Saved to \u{201C}\(library.current.name)\u{201D}."
         } catch {
             message = "Could not save: \(error.localizedDescription)"
         }
@@ -192,11 +215,16 @@ final class EditorModel {
 
     // MARK: Internals
 
-    /// Curves are the staple; big rooms are rare because nothing can cross them.
-    private static let randomKinds: [PipeKind] =
-        Array(repeating: .bezier, count: 10) + Array(repeating: .corner, count: 4)
-        + Array(repeating: .roomSmall, count: 3) + Array(repeating: .roomMedium, count: 2)
-        + [.roomLarge]
+    /// The kinds random pipes are drawn from: whatever the library allows
+    /// that joins two ports. Curves are the staple, and big rooms are rare
+    /// because nothing can cross them.
+    private var randomKinds: [PipeKind] {
+        let weighted: [PipeKind] =
+            Array(repeating: .bezier, count: 10) + Array(repeating: .corner, count: 4)
+            + Array(repeating: .roomSmall, count: 3) + Array(repeating: .roomMedium, count: 2)
+            + [.roomLarge]
+        return weighted.filter(library.current.allowedKinds.contains)
+    }
 
     private func place(from start: Port, to end: Port) -> Bool {
         var next = tile

@@ -1,7 +1,8 @@
 import SwiftUI
 import TubeKit
 
-/// Browses saved tiles, grouped into sets of interchangeable variants.
+/// Browses the current library's tiles, grouped into sets of interchangeable
+/// variants, and manages the libraries themselves.
 struct LibraryView: View {
     var library: LibraryModel
     /// Sends a tile to the editor; `asCopy` asks for a fresh duplicate.
@@ -28,17 +29,22 @@ struct LibraryView: View {
         var pipeCount: Int { tiles.first?.pipes.count ?? 0 }
     }
 
-    @State private var chosenPortCount: Int?
+    private enum Editing: Identifiable {
+        case new
+        case existing(TileLibrary)
+        var id: String {
+            switch self {
+            case .new: "new"
+            case let .existing(library): library.id.uuidString
+            }
+        }
+    }
+
     @State private var sort: Sort = .profile
     @State private var filter: Filter = .all
     @State private var selectedTile: Tile?
-
-    private var portsPerEdge: Int? {
-        let counts = library.portCounts
-        if let chosenPortCount, counts.contains(chosenPortCount) { return chosenPortCount }
-        // Start on the fullest library.
-        return counts.max { library.library(portsPerEdge: $0).tiles.count < library.library(portsPerEdge: $1).tiles.count }
-    }
+    @State private var editing: Editing?
+    @State private var isConfirmingDelete = false
 
     private func groups(in tiles: TileLibrary) -> [ProfileGroup] {
         var groups = tiles.tilesByProfile.map { ProfileGroup(profile: $0.key, tiles: $0.value) }
@@ -62,54 +68,96 @@ struct LibraryView: View {
     }
 
     var body: some View {
+        let current = library.current
         NavigationStack {
-            Group {
-                if let portsPerEdge {
-                    content(for: library.library(portsPerEdge: portsPerEdge))
-                } else {
-                    ContentUnavailableView(
-                        "No tiles yet",
-                        systemImage: "hexagon",
-                        description: Text("Tiles you save in the editor appear here.")
-                    )
+            content(for: current)
+                .background(TilePalette.paper.ignoresSafeArea())
+                // The title is drawn in the page so it scrolls with the tiles.
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { toolbar(for: current) }
+                .confirmationDialog(
+                    "Delete \u{201C}\(current.name)\u{201D}?",
+                    isPresented: $isConfirmingDelete,
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete library", role: .destructive) {
+                        try? library.deleteLibrary(id: current.id)
+                    }
+                } message: {
+                    Text(current.tiles.isEmpty
+                        ? "The library will be removed."
+                        : "The library and its ^[\(current.tiles.count) tile](inflect: true) will be removed. This cannot be undone. Saved mazes keep their own copies.")
                 }
-            }
-            .background(TilePalette.paper.ignoresSafeArea())
-            // The title is drawn in the page so it scrolls with the tiles.
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbar }
         }
         .sheet(item: $selectedTile) { tile in
             TileDetailView(
                 tile: tile,
-                variantCount: library.library(portsPerEdge: tile.portsPerEdge)
-                    .tilesByProfile[tile.edgeCode.canonical]?.count ?? 1,
+                variantCount: current.tilesByProfile[tile.edgeCode.canonical]?.count ?? 1,
+                destinations: library.destinations(from: current),
                 onOpen: { asCopy in
                     selectedTile = nil
                     onOpen(tile, asCopy)
                 },
+                onCopy: { destination in
+                    selectedTile = nil
+                    try? library.copy(tile, to: destination)
+                },
+                onMove: { destination in
+                    selectedTile = nil
+                    try? library.move(tile, from: current.id, to: destination)
+                },
                 onDelete: {
                     selectedTile = nil
-                    try? library.delete(tile)
+                    try? library.delete(tile, from: current.id)
                 }
             )
+        }
+        .sheet(item: $editing) { editing in
+            switch editing {
+            case .new:
+                LibraryEditorView(
+                    existing: nil,
+                    suggestedName: library.unusedName("New library"),
+                    suggestedPorts: current.portsPerEdge
+                ) { name, note, ports, kinds in
+                    _ = try? library.create(name: name, note: note, portsPerEdge: ports, allowedKinds: kinds)
+                }
+            case let .existing(target):
+                LibraryEditorView(existing: target) { name, note, _, kinds in
+                    try? library.update(id: target.id, name: name, note: note, allowedKinds: kinds)
+                }
+            }
         }
     }
 
     @ToolbarContentBuilder
-    private var toolbar: some ToolbarContent {
+    private func toolbar(for current: TileLibrary) -> some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
-            if library.portCounts.count > 1, let portsPerEdge {
-                Picker("Ports per edge", selection: Binding(
-                    get: { portsPerEdge },
-                    set: { chosenPortCount = $0 }
+            Menu {
+                Picker("Library", selection: Binding(
+                    get: { library.currentID }, set: { library.select($0) }
                 )) {
-                    ForEach(library.portCounts, id: \.self) { count in
-                        Text("\(count) ports").tag(count)
+                    ForEach(library.libraries) { item in
+                        Text("\(item.name) · \(item.portsPerEdge) ports").tag(item.id)
                     }
                 }
-                .pickerStyle(.menu)
+                Divider()
+                Button { editing = .new } label: {
+                    Label("New library", systemImage: "plus")
+                }
+                Button { editing = .existing(current) } label: {
+                    Label("Edit this library", systemImage: "slider.horizontal.3")
+                }
+                Button { _ = try? library.duplicate(id: current.id) } label: {
+                    Label("Duplicate this library", systemImage: "plus.square.on.square")
+                }
+                Button(role: .destructive) { isConfirmingDelete = true } label: {
+                    Label("Delete this library", systemImage: "trash")
+                }
+            } label: {
+                Label("Libraries", systemImage: "books.vertical")
             }
+
             Menu {
                 Picker("Show", selection: $filter) {
                     ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
@@ -128,35 +176,45 @@ struct LibraryView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 summary(for: tiles, shownGroups: groups.count)
-                EdgeCoverageView(library: tiles)
 
-                if groups.isEmpty {
-                    Text("No tiles match this filter.")
-                        .foregroundStyle(Color.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 40)
-                }
-                // Profiles with several tiles each get their own headed
-                // section; profiles with one tile share a section, so a
-                // library of one-offs stays a compact grid.
-                let variantGroups = groups.filter { $0.tiles.count > 1 }
-                let singles = groups.filter { $0.tiles.count == 1 }.flatMap(\.tiles)
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 100, maximum: 150), spacing: 12)],
-                    alignment: .leading, spacing: 14
-                ) {
-                    ForEach(variantGroups) { group in
-                        Section {
-                            ForEach(group.tiles) { tile in cell(tile) }
-                        } header: {
-                            groupHeader(group.profile.description, badge: "\(group.tiles.count) variants")
-                        }
+                if tiles.tiles.isEmpty {
+                    ContentUnavailableView(
+                        "No tiles yet",
+                        systemImage: "hexagon",
+                        description: Text("Tiles you save in the editor go into this library.")
+                    )
+                    .padding(.top, 24)
+                } else {
+                    EdgeCoverageView(library: tiles)
+
+                    if groups.isEmpty {
+                        Text("No tiles match this filter.")
+                            .foregroundStyle(Color.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 40)
                     }
-                    if !singles.isEmpty {
-                        Section {
-                            ForEach(singles) { tile in cell(tile) }
-                        } header: {
-                            groupHeader(variantGroups.isEmpty ? "Tiles" : "One of a kind", badge: nil)
+                    // Profiles with several tiles each get their own headed
+                    // section; profiles with one tile share a section, so a
+                    // library of one-offs stays a compact grid.
+                    let variantGroups = groups.filter { $0.tiles.count > 1 }
+                    let singles = groups.filter { $0.tiles.count == 1 }.flatMap(\.tiles)
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: 100, maximum: 150), spacing: 12)],
+                        alignment: .leading, spacing: 14
+                    ) {
+                        ForEach(variantGroups) { group in
+                            Section {
+                                ForEach(group.tiles) { tile in cell(tile) }
+                            } header: {
+                                groupHeader(group.profile.description, badge: "\(group.tiles.count) variants")
+                            }
+                        }
+                        if !singles.isEmpty {
+                            Section {
+                                ForEach(singles) { tile in cell(tile) }
+                            } header: {
+                                groupHeader(variantGroups.isEmpty ? "Tiles" : "One of a kind", badge: nil)
+                            }
                         }
                     }
                 }
@@ -179,20 +237,38 @@ struct LibraryView: View {
         .buttonStyle(.plain)
     }
 
+    /// The library's name, note, size and rules.
     private func summary(for tiles: TileLibrary, shownGroups: Int) -> some View {
         let total = tiles.tilesByProfile.count
-        return VStack(alignment: .leading, spacing: 2) {
-            Text("Library")
+        let off = tiles.offPaletteTiles.count
+        let kinds = PipeKind.allCases.filter(tiles.allowedKinds.contains)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(tiles.name)
                 .font(.largeTitle.bold())
                 .foregroundStyle(Color.primary)
-                .padding(.bottom, 8)
                 .accessibilityAddTraits(.isHeader)
+            if !tiles.note.isEmpty {
+                Text(tiles.note)
+                    .font(.body)
+                    .foregroundStyle(Color.secondary)
+                    .padding(.bottom, 4)
+            }
             Text("^[\(tiles.tiles.count) tile](inflect: true) in ^[\(total) profile](inflect: true)")
                 .font(.headline)
                 .foregroundStyle(Color.primary)
             Text("\(tiles.portsPerEdge) ports per edge" + (filter == .all ? "" : " · showing \(shownGroups)"))
                 .font(.subheadline)
                 .foregroundStyle(Color.secondary)
+            Text(kinds.count == PipeKind.allCases.count
+                ? "All pipe kinds"
+                : "Kinds: " + kinds.map(\.shortTitle).joined(separator: ", "))
+                .font(.subheadline)
+                .foregroundStyle(Color.secondary)
+            if off > 0 {
+                Text("^[\(off) tile](inflect: true) use kinds outside this list.")
+                    .font(.subheadline)
+                    .foregroundStyle(TilePalette.negative)
+            }
         }
     }
 
