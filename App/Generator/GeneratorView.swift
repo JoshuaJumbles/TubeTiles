@@ -44,11 +44,25 @@ struct GeneratorView: View {
                     .multilineTextAlignment(.center)
             }
             .padding(.top, 10)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 56)
 
             MazeCanvas(model: model)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .topTrailing) {
+            ShareLink(item: model.drawing, preview: SharePreview("TubeTiles maze.svg")) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(TilePalette.face))
+                    .foregroundStyle(Color(white: 0.15))
+            }
+            .accessibilityLabel("Export SVG")
+            .disabled(model.maze.cells.isEmpty)
+            .opacity(model.maze.cells.isEmpty ? 0.4 : 1)
+            .padding(.top, 6)
+            .padding(.trailing, 10)
+        }
     }
 
     private var hint: String {

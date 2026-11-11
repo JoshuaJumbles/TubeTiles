@@ -113,6 +113,37 @@ enum TileRenderer {
         }
     }
 
+    /// Redraws the upper pipe for a short way either side of a crossing, so
+    /// it passes over the pipe beneath whatever order the two were drawn in.
+    static func drawBridge(
+        _ crossing: Crossing,
+        style: TileStyle,
+        in frame: TileFrame,
+        context: inout GraphicsContext,
+        palette: TilePalette = .standard
+    ) {
+        let line = Polyline(PipeShape(crossing.over, style: style))
+        let half = crossing.bridgeHalfLength(style: style)
+        let points = line.slice(from: crossing.overDistance - half, to: crossing.overDistance + half)
+        guard let first = points.first else { return }
+        var path = Path()
+        path.move(to: frame.point(first))
+        for point in points.dropFirst() {
+            path.addLine(to: frame.point(point))
+        }
+        context.stroke(
+            path, with: .color(palette.ink),
+            style: StrokeStyle(lineWidth: style.pipeWidth * frame.scale, lineCap: .butt, lineJoin: .round)
+        )
+        context.stroke(
+            path, with: .color(palette.tube),
+            style: StrokeStyle(
+                lineWidth: (style.pipeWidth - style.wallThickness * 2) * frame.scale,
+                lineCap: .butt, lineJoin: .round
+            )
+        )
+    }
+
     /// Draws every pipe of a tile in stacking order, clipped to the hex.
     static func draw(
         _ tile: Tile,

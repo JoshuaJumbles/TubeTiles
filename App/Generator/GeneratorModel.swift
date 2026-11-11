@@ -56,6 +56,21 @@ final class GeneratorModel {
     }
 
     var paths: MazePaths { maze.paths }
+    var weave: Weave { maze.weave() }
+
+    /// The maze as a drawing to share. Path colours are included while they
+    /// are shown on screen; otherwise the tubes are plain white.
+    var drawing: MazeDrawing {
+        var options = MazeSVG.Options()
+        if showsPaths {
+            let paths = paths
+            let kept = keptPaths(in: paths)
+            for (index, path) in paths.paths.enumerated() where !kept.contains(index) {
+                options.pathColors[index] = PathTint.hex(for: path)
+            }
+        }
+        return MazeDrawing(maze: maze, options: options)
+    }
 
     /// Indexes of the paths that are being kept as they are.
     func keptPaths(in paths: MazePaths) -> Set<Int> {
