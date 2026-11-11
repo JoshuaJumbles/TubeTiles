@@ -2,16 +2,16 @@ import SwiftUI
 import TubeKit
 
 /// Draws the maze being worked on, with its editing overlays, and reports
-/// taps on cells and on the outline.
+/// taps on cells and on the outline. Pinch to zoom, drag to pan.
 struct MazeCanvas: View {
-    var model: GeneratorModel
+    @Bindable var model: GeneratorModel
 
     private static let open = Color(red: 0.85, green: 0.45, blue: 0.10)
 
     var body: some View {
         GeometryReader { proxy in
             let maze = model.maze
-            let layout = MazeLayout(size: proxy.size, radius: maze.radius, padding: 28)
+            let layout = MazeLayout(size: proxy.size, radius: maze.radius, padding: 28, viewport: model.viewport)
             let openCells = Set(model.openCells)
             let selected = model.selected
             let selectedImages = selected.map { Set(maze.images(of: $0, symmetry: model.symmetry)) } ?? []
@@ -78,6 +78,26 @@ struct MazeCanvas: View {
                         model.toggleGoal(cell.coord)
                     }
             )
+            .viewportGestures($model.viewport, in: proxy.size)
+            // Zoomed in, the maze is larger than its area of the screen.
+            .clipped()
+            .overlay(alignment: .bottomTrailing) {
+                if !model.viewport.isDefault {
+                    Button {
+                        withAnimation(.snappy) { model.viewport = Viewport() }
+                    } label: {
+                        Label("Fit", systemImage: "arrow.down.right.and.arrow.up.left")
+                            .font(.footnote.weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Capsule().fill(TilePalette.face))
+                            .foregroundStyle(Color.primary)
+                    }
+                    .accessibilityLabel("Fit the whole maze")
+                    .padding(10)
+                    .transition(.opacity)
+                }
+            }
             .accessibilityLabel("Maze canvas")
         }
     }

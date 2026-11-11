@@ -8,6 +8,7 @@ struct GeneratorView: View {
     var archive: MazeArchive
 
     @State private var showsMazes = false
+    @State private var showsPreview = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -68,19 +69,33 @@ struct GeneratorView: View {
             MazesView(model: model, archive: archive)
         }
         .overlay(alignment: .topTrailing) {
-            ShareLink(item: model.drawing, preview: SharePreview("TubeTiles maze.svg")) {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 40, height: 40)
-                    .background(Circle().fill(TilePalette.face))
-                    .foregroundStyle(Color.primary)
+            VStack(spacing: 8) {
+                ShareLink(item: model.drawing, preview: SharePreview("TubeTiles maze.svg")) {
+                    cornerButton("square.and.arrow.up")
+                }
+                .accessibilityLabel("Export SVG")
+
+                Button { showsPreview = true } label: {
+                    cornerButton("eye")
+                }
+                .accessibilityLabel("Preview")
             }
-            .accessibilityLabel("Export SVG")
             .disabled(model.maze.cells.isEmpty)
             .opacity(model.maze.cells.isEmpty ? 0.4 : 1)
             .padding(.top, 6)
             .padding(.trailing, 10)
         }
+        .fullScreenCover(isPresented: $showsPreview) {
+            MazePreview(maze: model.maze)
+        }
+    }
+
+    private func cornerButton(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.body.weight(.semibold))
+            .frame(width: 40, height: 40)
+            .background(Circle().fill(TilePalette.face))
+            .foregroundStyle(Color.primary)
     }
 
     private var hint: String {

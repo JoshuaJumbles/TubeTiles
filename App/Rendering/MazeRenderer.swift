@@ -7,13 +7,15 @@ struct MazeLayout {
     var origin: CGPoint
     var scale: CGFloat
 
-    /// The largest layout that fits the whole region inside `size`.
-    init(size: CGSize, radius: Int, padding: CGFloat) {
+    /// The layout that fits the whole region inside `size`, then zoomed and
+    /// moved by `viewport`.
+    init(size: CGSize, radius: Int, padding: CGFloat, viewport: Viewport = Viewport()) {
         // The region spans 3r + 2 units across and sqrt(3)(2r + 1) tall.
         let across = 3 * Double(radius) + 2
         let tall = HexGeometry.inradius * 2 * Double(2 * radius + 1)
-        scale = max(1, min((size.width - padding * 2) / across, (size.height - padding * 2) / tall))
-        origin = CGPoint(x: size.width / 2, y: size.height / 2)
+        let fit = max(1, min((size.width - padding * 2) / across, (size.height - padding * 2) / tall))
+        scale = fit * viewport.zoom
+        origin = CGPoint(x: size.width / 2 + viewport.offset.width, y: size.height / 2 + viewport.offset.height)
     }
 
     func frame(for coord: HexCoord) -> TileFrame {
@@ -55,14 +57,19 @@ struct MazeLayout {
 enum MazeRenderer {
     /// Draws the region, its tiles woven together, and any openings.
     ///
-    /// - Parameter palette: The colours for the pipe ending at a given port.
-    ///   Defaults to plain walls and tubes.
+    /// - Parameters:
+    ///   - showsCells: Whether to draw the tiles' faces, the empty cells and
+    ///     the grid. Off leaves only the pipes, for a view of the finished
+    ///     maze.
+    ///   - palette: The colours for the pipe ending at a given port. Defaults
+    ///     to plain walls and tubes.
     static func draw(
         _ maze: Maze,
         weave: Weave,
         layout: MazeLayout,
         context: inout GraphicsContext,
         showsGrid: Bool = true,
+        showsCells: Bool = true,
         palette: (PortRef) -> TilePalette = { _ in .standard }
     ) {
         let style = TileStyle(portsPerEdge: maze.portsPerEdge)
@@ -72,7 +79,9 @@ enum MazeRenderer {
             let frame = layout.frame(for: coord)
             let hex = TileRenderer.hexPath(in: frame)
             if let placed = maze.cells[coord] {
-                context.fill(hex, with: .color(TilePalette.face))
+                if showsCells {
+                    context.fill(hex, with: .color(TilePalette.face))
+                }
                 var clipped = context
                 clipped.clip(to: hex)
                 for pipe in placed.oriented.pipes {
@@ -89,10 +98,10 @@ enum MazeRenderer {
                         palette: palette(PortRef(coord: coord, port: crossing.over.a))
                     )
                 }
-            } else {
+            } else if showsCells {
                 context.fill(hex, with: .color(TilePalette.emptyCell))
             }
-            if showsGrid {
+            if showsGrid && showsCells {
                 context.stroke(hex, with: .color(grid), lineWidth: 1)
             }
         }

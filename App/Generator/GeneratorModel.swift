@@ -9,8 +9,21 @@ final class GeneratorModel {
     static let radiusRange = 1...6
 
     private(set) var maze: Maze {
-        didSet { if maze != oldValue { scheduleAutosave() } }
+        didSet {
+            guard maze != oldValue else { return }
+            // Worked out once per change, not on every redraw, so zooming
+            // and panning stay smooth.
+            paths = maze.paths
+            weave = maze.weave()
+            scheduleAutosave()
+        }
     }
+    /// Every path through the maze, kept up to date with it.
+    private(set) var paths: MazePaths
+    /// Over and under for every crossing, kept up to date with the maze.
+    private(set) var weave: Weave
+    /// How far the canvas is zoomed in and where it has been dragged to.
+    var viewport = Viewport()
     var symmetry: Symmetry = .none {
         didSet { if symmetry != oldValue { scheduleAutosave() } }
     }
@@ -46,9 +59,10 @@ final class GeneratorModel {
     init(library: LibraryModel, archive: MazeArchive) {
         self.library = library
         self.archive = archive
+        let start: Maze
         if let working = archive.loadWorkingCopy() {
             // Pick up where the last session left off.
-            maze = working.maze
+            start = working.maze
             symmetry = working.symmetry
             kept = working.kept
             documentID = archive.maze(id: working.documentID)?.id
@@ -57,8 +71,11 @@ final class GeneratorModel {
             let fullest = counts.max {
                 library.library(portsPerEdge: $0).tiles.count < library.library(portsPerEdge: $1).tiles.count
             }
-            maze = Maze(portsPerEdge: fullest ?? 6, radius: 3)
+            start = Maze(portsPerEdge: fullest ?? 6, radius: 3)
         }
+        maze = start
+        paths = start.paths
+        weave = start.weave()
     }
 
     // MARK: Saving
@@ -107,6 +124,7 @@ final class GeneratorModel {
         documentID = saved.id
         selected = nil
         message = nil
+        viewport = Viewport()
         writeWorkingCopy()
     }
 
@@ -155,9 +173,6 @@ final class GeneratorModel {
     var portChoices: [Int] {
         Array(Set(library.portCounts + [portsPerEdge])).sorted()
     }
-
-    var paths: MazePaths { maze.paths }
-    var weave: Weave { maze.weave() }
 
     /// The maze as a drawing to share. Path colours are included while they
     /// are shown on screen; otherwise the tubes are plain white.
@@ -218,7 +233,11 @@ final class GeneratorModel {
         maze = Maze(portsPerEdge: portsPerEdge, radius: radius)
         // Clearing the tiles keeps the entrance and exit; a different size
         // or port count has a different outline, so they are dropped.
-        if sameShape { maze.setOpenings(openings) }
+        if sameShape {
+            maze.setOpenings(openings)
+        } else {
+            viewport = Viewport()
+        }
         selected = nil
         kept = []
         message = nil
