@@ -1,9 +1,9 @@
 import Foundation
 import TubeKit
 
-/// A made-up library for previews and screenshots. Launch the app with
-/// `-sampleLibrary YES` to use it in place of the saved one; nothing it holds
-/// is written to disk.
+/// Made-up libraries for previews and screenshots. Launch the app with
+/// `-sampleLibrary YES` to use them in place of the saved ones; nothing they
+/// hold is written to disk.
 @MainActor
 enum SampleData {
     static var isRequested: Bool {
@@ -12,50 +12,70 @@ enum SampleData {
 
     static func library() -> LibraryModel {
         let model = LibraryModel(store: nil)
+        let placeholder = model.currentID
         var generator = SplitMix(state: 20_261_110)
 
-        // Sparse tiles in sets: each base tile, plus the same ports joined
-        // differently, plus a turned or flipped copy. That gives groups of
-        // variants like a hand-built library has.
+        // A general library: sparse tiles in sets, each base tile plus the
+        // same ports joined differently and turned or flipped, so there are
+        // groups of variants like a hand-built library has.
+        let mixedKinds: [PipeKind] =
+            Array(repeating: .bezier, count: 8) + Array(repeating: .corner, count: 3) + [.roomSmall, .roomMedium]
+        let mixed = try? model.create(
+            name: "Mixed", note: "A bit of everything.", portsPerEdge: 6, allowedKinds: Set(PipeKind.allCases)
+        )
         for _ in 0..<14 {
             var base = Tile(portsPerEdge: 6)
-            let pipeCount = Int.random(in: 2...4, using: &generator)
-            for _ in 0..<pipeCount {
-                base.addRandomPipe(kinds: kinds, using: &generator)
+            for _ in 0..<Int.random(in: 2...4, using: &generator) {
+                base.addRandomPipe(kinds: mixedKinds, using: &generator)
             }
             guard base.pipes.count >= 2 else { continue }
-            try? model.save(base)
-
+            try? model.save(base, to: mixed?.id)
             for _ in 0..<Int.random(in: 0...3, using: &generator) {
-                if let variant = rewired(base, using: &generator) {
+                if let variant = rewired(base, kinds: mixedKinds, using: &generator) {
                     let placement = TileTransform.allCases.randomElement(using: &generator)!
-                    try? model.save(copy(variant.transformed(by: placement)))
+                    try? model.save(copy(variant.transformed(by: placement)), to: mixed?.id)
                 }
             }
         }
-
-        // A few dense tiles, and a second port count.
         for _ in 0..<4 {
             var tile = Tile(portsPerEdge: 6)
-            tile.fillRandomly(kinds: kinds, using: &generator)
-            try? model.save(tile)
+            tile.fillRandomly(kinds: mixedKinds, using: &generator)
+            try? model.save(tile, to: mixed?.id)
         }
+
+        // Libraries built to a look: one of curves only, one of corners only.
+        for (name, note, kinds) in [
+            ("Curves only", "Soft and looping. No corners, no rooms.", Set<PipeKind>([.bezier, .endMedium])),
+            ("Angular", "Straight runs and sharp corners.", Set<PipeKind>([.corner, .endSmall])),
+        ] {
+            let styled = try? model.create(name: name, note: note, portsPerEdge: 6, allowedKinds: kinds)
+            for _ in 0..<12 {
+                var tile = Tile(portsPerEdge: 6)
+                for _ in 0..<Int.random(in: 2...4, using: &generator) {
+                    tile.addRandomPipe(kinds: kinds.filter { !$0.isDeadEnd }, using: &generator)
+                }
+                if !tile.pipes.isEmpty { try? model.save(tile, to: styled?.id) }
+            }
+        }
+
+        // A second port count.
+        let small = try? model.create(name: "Four ports", note: "", portsPerEdge: 4, allowedKinds: Set(PipeKind.allCases))
         for _ in 0..<5 {
             var tile = Tile(portsPerEdge: 4)
             for _ in 0..<3 {
-                tile.addRandomPipe(kinds: kinds, using: &generator)
+                tile.addRandomPipe(kinds: mixedKinds, using: &generator)
             }
-            try? model.save(tile)
+            try? model.save(tile, to: small?.id)
         }
+
+        if let mixed { model.select(mixed.id) }
+        try? model.deleteLibrary(id: placeholder)
         return model
     }
 
-    private static let kinds: [PipeKind] =
-        Array(repeating: .bezier, count: 8) + Array(repeating: .corner, count: 3) + [.roomSmall, .roomMedium]
-
     /// The same ports as `tile`, paired up in a different valid way.
-    private static func rewired(_ tile: Tile, using generator: inout SplitMix) -> Tile? {
-        let ports = Array(tile.occupiedPorts)
+    private static func rewired(_ tile: Tile, kinds: [PipeKind], using generator: inout SplitMix) -> Tile? {
+        let ports = tile.occupiedPorts.sorted()
         for _ in 0..<20 {
             var next = Tile(portsPerEdge: tile.portsPerEdge)
             var remaining = ports.shuffled(using: &generator)

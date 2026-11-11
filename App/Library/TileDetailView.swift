@@ -6,7 +6,11 @@ struct TileDetailView: View {
     var tile: Tile
     /// How many tiles share this tile's profile, itself included.
     var variantCount: Int
+    /// Other libraries this tile could be copied or moved into.
+    var destinations: [TileLibrary] = []
     var onOpen: (_ asCopy: Bool) -> Void
+    var onCopy: (_ destination: UUID) -> Void = { _ in }
+    var onMove: (_ destination: UUID) -> Void = { _ in }
     var onDelete: () -> Void
 
     @State private var isConfirmingDelete = false
@@ -55,6 +59,26 @@ struct TileDetailView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
+
+                        if !destinations.isEmpty {
+                            HStack(spacing: 10) {
+                                Menu {
+                                    ForEach(destinations) { library in
+                                        Button(library.name) { onCopy(library.id) }
+                                    }
+                                } label: {
+                                    Label("Copy to", systemImage: "doc.on.doc").frame(maxWidth: .infinity)
+                                }
+                                Menu {
+                                    ForEach(destinations) { library in
+                                        Button(library.name) { onMove(library.id) }
+                                    }
+                                } label: {
+                                    Label("Move to", systemImage: "arrow.right.doc.on.clipboard").frame(maxWidth: .infinity)
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                        }
 
                         Button(role: .destructive) { isConfirmingDelete = true } label: {
                             Label("Delete", systemImage: "trash").frame(maxWidth: .infinity)
