@@ -56,7 +56,12 @@ public struct Tile: Identifiable, Hashable, Sendable, Codable {
     }
 
     public var occupiedPorts: Set<Port> {
-        Set(pipes.flatMap { [$0.a, $0.b] })
+        Set(pipes.flatMap(\.ports))
+    }
+
+    /// The tile's dead ends, if it has any.
+    public var deadEnds: [Pipe] {
+        pipes.filter(\.isDeadEnd)
     }
 
     public var freePorts: [Port] {
@@ -70,7 +75,8 @@ public struct Tile: Identifiable, Hashable, Sendable, Codable {
         EdgeCode(portsPerEdge: portsPerEdge, occupied: occupiedPorts)
     }
 
-    /// Which port each occupied port is joined to, ignoring pipe kinds.
+    /// Which port each occupied port is joined to, ignoring pipe kinds. A
+    /// dead end's port maps to itself.
     ///
     /// Two tiles with the same edge code but different pairings are the
     /// variants that reroute a path without disturbing their neighbours.

@@ -34,6 +34,11 @@ public enum LegacyFormat {
         case .roomSmall: "CR0"
         case .roomMedium: "CR1"
         case .roomLarge: "CR2"
+        // Dead ends did not exist in the original editor; these codes are
+        // only so every kind has one.
+        case .endSmall: "DE0"
+        case .endMedium: "DE1"
+        case .endLarge: "DE2"
         }
     }
 

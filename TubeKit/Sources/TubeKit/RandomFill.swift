@@ -5,7 +5,7 @@ extension Tile {
     /// `kinds` may repeat entries to make some kinds more likely than others.
     @discardableResult
     public mutating func addRandomPipe(
-        kinds: [PipeKind] = PipeKind.allCases,
+        kinds: [PipeKind] = PipeKind.throughKinds,
         attempts: Int = 30,
         using generator: inout some RandomNumberGenerator
     ) -> Pipe? {
@@ -16,7 +16,7 @@ extension Tile {
             let a = free.randomElement(using: &generator)!
             let b = free.randomElement(using: &generator)!
             let kind = kinds.randomElement(using: &generator)!
-            let pipe = Pipe(kind, a: a, b: b)
+            let pipe = kind.isDeadEnd ? Pipe(kind, at: a) : Pipe(kind, a: a, b: b)
             if PlacementRules.error(adding: pipe, to: self, coverage: coverage) == nil {
                 pipes.append(pipe)
                 return pipe
@@ -28,7 +28,7 @@ extension Tile {
     /// Adds random valid pipes until one fails to fit. Returns how many were added.
     @discardableResult
     public mutating func fillRandomly(
-        kinds: [PipeKind] = PipeKind.allCases,
+        kinds: [PipeKind] = PipeKind.throughKinds,
         using generator: inout some RandomNumberGenerator
     ) -> Int {
         var added = 0

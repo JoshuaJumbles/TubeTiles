@@ -185,7 +185,7 @@ extension Maze {
                     let isFirst = crossings[index].first == step.pipe
                     return (index, isFirst, isFirst ? crossings[index].firstDistance : crossings[index].secondDistance)
                 }
-                let forwards = step.entry == step.pipe.a
+                let forwards = !step.runsBackwards
                 for visit in here.sorted(by: { forwards ? $0.2 < $1.2 : $0.2 > $1.2 }) {
                     visits.append((visit.0, visit.1))
                 }

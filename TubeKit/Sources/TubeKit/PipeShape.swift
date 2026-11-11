@@ -26,6 +26,11 @@ public struct TileStyle: Hashable, Sendable {
         case .roomSmall: return height * 0.31
         case .roomMedium: return height * 0.62
         case .roomLarge: return height * 0.93
+        // The largest dead end is a little smaller than the largest room,
+        // so it fits whole inside the tile from any port near mid-edge.
+        case .endSmall: return height * 0.31
+        case .endMedium: return height * 0.55
+        case .endLarge: return height * 0.80
         case .bezier, .corner: return nil
         }
     }
@@ -106,6 +111,15 @@ public struct PipeShape: Hashable, Sendable {
             let center = meeting ?? midpoint
             segments = [.line(start, center), .line(center, end)]
             room = Disc(center: center, diameter: style.roomDiameter(for: pipe.kind) ?? 0)
+
+        case .endSmall, .endMedium, .endLarge:
+            // Straight in from the port, far enough for the room to clear
+            // the edge it came from but never past the middle of the tile.
+            let diameter = style.roomDiameter(for: pipe.kind) ?? 0
+            let depth = min(diameter / 2 + style.pipeWidth, HexGeometry.inradius)
+            let center = start + startDirection * depth
+            segments = [.line(start, center)]
+            room = Disc(center: center, diameter: diameter)
         }
     }
 

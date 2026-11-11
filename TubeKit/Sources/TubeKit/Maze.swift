@@ -67,6 +67,13 @@ public struct Maze: Hashable, Sendable, Codable {
     /// Ports on the outline where a pipe is required to leave the region:
     /// the entrance and exit of an open path.
     public private(set) var openings: Set<PortRef> = []
+    /// Cells whose tile must contain a dead end: where a path starts or
+    /// finishes inside the maze.
+    public private(set) var goals: Set<HexCoord> = []
+
+    /// How many path ends the maze asks for. Every path has two ends or
+    /// none, so a maze can only be finished when this is even.
+    public var endCount: Int { openings.count + goals.count }
 
     public init(portsPerEdge: Int, radius: Int) {
         self.portsPerEdge = portsPerEdge
@@ -77,7 +84,7 @@ public struct Maze: Hashable, Sendable, Codable {
     // that could not be part of this maze (a cell outside the region, a tile
     // with the wrong port count, an opening off the outline) is dropped.
     private enum CodingKeys: String, CodingKey {
-        case portsPerEdge, radius, cells, openings
+        case portsPerEdge, radius, cells, openings, goals
     }
 
     private struct StoredCell: Codable {
@@ -97,6 +104,7 @@ public struct Maze: Hashable, Sendable, Codable {
         }
         let stored = try container.decodeIfPresent([PortRef].self, forKey: .openings) ?? []
         openings = Set(stored.filter(isOnOutline))
+        goals = Set((try container.decodeIfPresent([HexCoord].self, forKey: .goals) ?? []).filter(contains))
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -108,6 +116,7 @@ public struct Maze: Hashable, Sendable, Codable {
         }
         try container.encode(stored, forKey: .cells)
         try container.encode(openings.sorted { ($0.coord, $0.port) < ($1.coord, $1.port) }, forKey: .openings)
+        try container.encode(goals.sorted(), forKey: .goals)
     }
 
     public func contains(_ coord: HexCoord) -> Bool {
@@ -152,6 +161,17 @@ public struct Maze: Hashable, Sendable, Codable {
         }
     }
 
+    /// Replaces the goals. Cells outside the region are ignored. The tile at
+    /// any cell that becomes or stops being a goal is taken out, since it
+    /// needs a different kind of tile.
+    public mutating func setGoals(_ coords: some Sequence<HexCoord>) {
+        let next = Set(coords.filter(contains))
+        for coord in goals.symmetricDifference(next) {
+            cells[coord] = nil
+        }
+        goals = next
+    }
+
     /// The value a tile at `coord` must show on `edge`, or nil if anything
     /// goes: on the outline, exactly the openings there (usually none), and
     /// otherwise whatever a placed neighbour needs.
@@ -178,11 +198,13 @@ public struct Maze: Hashable, Sendable, Codable {
         return true
     }
 
-    /// Empty cells that a neighbouring pipe points into. The maze is not
-    /// finished until there are none.
+    /// Empty cells that must still be filled: ones a neighbouring pipe or an
+    /// opening points into, and goals. The maze is not finished until there
+    /// are none.
     public var openCells: [HexCoord] {
         coords.filter { coord in
-            cells[coord] == nil && (0..<HexGeometry.edgeCount).contains { edge in
+            guard cells[coord] == nil else { return false }
+            return goals.contains(coord) || (0..<HexGeometry.edgeCount).contains { edge in
                 (requirement(at: coord, edge: edge) ?? 0) != 0
             }
         }
@@ -235,7 +257,7 @@ public struct Maze: Hashable, Sendable, Codable {
         }
     }
 
-    /// Removes every tile. Openings stay where they are.
+    /// Removes every tile. Openings and goals stay where they are.
     public mutating func removeAll() {
         cells.removeAll()
     }

@@ -1,0 +1,265 @@
+import Foundation
+import Testing
+@testable import TubeKit
+
+private func port(_ edge: Int, _ slot: Int) -> TubeKit.Port { TubeKit.Port(edge: edge, slot: slot) }
+
+@Suite struct DeadEndPipeTests {
+    @Test func aDeadEndUsesOnePort() throws {
+        let end = Pipe(.endSmall, at: port(0, 2))
+        #expect(end.isDeadEnd)
+        #expect(end.ports == [port(0, 2)])
+        #expect(end.otherEnd(from: port(0, 2)) == nil)
+        #expect(PlacementRules.shapeError(for: end, portsPerEdge: 5) == nil)
+        // A dead end cannot span two ports, and an ordinary pipe needs two.
+        #expect(PlacementRules.shapeError(for: Pipe(.endSmall, a: port(0, 2), b: port(3, 2)), portsPerEdge: 5) == .deadEndNeedsOnePort)
+        #expect(PlacementRules.shapeError(for: Pipe(.bezier, a: port(0, 2), b: port(0, 2)), portsPerEdge: 5) == .samePort)
+
+        let tile = try Tile(portsPerEdge: 5, pipes: [end])
+        #expect(tile.occupiedPorts == [port(0, 2)])
+        #expect(tile.edgeCode.values == [0b00100, 0, 0, 0, 0, 0])
+        #expect(tile.deadEnds == [end])
+    }
+
+    @Test func theRoomSitsStraightInFromThePort() {
+        let style = TileStyle(portsPerEdge: 5)
+        for kind in PipeKind.deadEndKinds {
+            let shape = PipeShape(Pipe(kind, at: port(0, 2)), style: style)
+            let start = HexGeometry.position(of: port(0, 2), portsPerEdge: 5)
+            let room = shape.room!
+            // Edge 0 is the top, so straight in is straight down.
+            #expect(abs(room.center.x - start.x) < 1e-9)
+            #expect(room.center.y > start.y)
+            // The room clears the edge the pipe came from.
+            #expect(room.center.y - room.diameter / 2 > start.y)
+        }
+        let sizes = PipeKind.deadEndKinds.map { style.roomDiameter(for: $0)! }
+        #expect(sizes == sizes.sorted(by: >))
+    }
+
+    @Test(arguments: [3, 4, 5, 6])
+    func theLargestRoomFitsFromMidEdge(portsPerEdge: Int) throws {
+        // With an even port count there is no exact middle, so both ports
+        // either side of it must work.
+        for slot in Set([(portsPerEdge - 1) / 2, portsPerEdge / 2]) {
+            var tile = Tile(portsPerEdge: portsPerEdge)
+            try tile.add(Pipe(.endLarge, at: port(0, slot)))
+            #expect(tile.pipes.count == 1)
+        }
+    }
+
+    @Test func nothingCrossesADeadEndRoom() throws {
+        var tile = Tile(portsPerEdge: 5)
+        try tile.add(Pipe(.endMedium, at: port(0, 2)))
+        #expect(throws: PlacementError.overlap) {
+            try tile.add(Pipe(.corner, a: port(1, 2), b: port(4, 2)))
+        }
+        // A pipe that keeps clear of the room is fine.
+        try tile.add(Pipe(.bezier, a: port(3, 0), b: port(3, 4)))
+    }
+
+    @Test func deadEndsSurviveTransformsAndStorage() throws {
+        let tile = try Tile(portsPerEdge: 5, pipes: [
+            Pipe(.endSmall, at: port(1, 1)),
+            Pipe(.bezier, a: port(3, 0), b: port(4, 4)),
+        ])
+        for transform in TileTransform.allCases {
+            let moved = tile.transformed(by: transform)
+            #expect(moved.deadEnds.count == 1)
+            #expect(moved.edgeCode == tile.edgeCode.transformed(by: transform))
+            #expect(moved.transformed(by: transform.inverse) == tile)
+        }
+        let loaded = try JSONDecoder().decode(Tile.self, from: JSONEncoder().encode(tile))
+        #expect(loaded == tile)
+    }
+
+    @Test func theSynthesizerBuildsAroundADeadEnd() throws {
+        var random = SeededGenerator(seed: 5)
+        let ports = [port(0, 1), port(2, 0), port(4, 3)]
+        let tile = try #require(TileSynthesizer.tile(
+            portsPerEdge: 4, ports: ports, deadEnd: (port(0, 1), .endSmall), using: &random
+        ))
+        #expect(tile.occupiedPorts == Set(ports))
+        #expect(tile.deadEnds == [Pipe(.endSmall, at: port(0, 1))])
+        #expect(tile.pipes.count == 2)
+        let rebuilt = try Tile(portsPerEdge: 4, pipes: tile.pipes)
+        #expect(rebuilt.pipes == tile.pipes)
+        // Without a dead end, three ports cannot be paired up.
+        #expect(TileSynthesizer.tile(portsPerEdge: 4, ports: ports, using: &random) == nil)
+    }
+}
+
+@Suite struct DeadEndPathTests {
+    @Test func twoDeadEndsFacingEachOtherAreOneShortPath() throws {
+        let down = try Tile(portsPerEdge: 3, pipes: [Pipe(.endSmall, at: port(3, 1))])
+        var maze = Maze(portsPerEdge: 3, radius: 1)
+        maze = try #require(maze.placing(PlacedTile(down), at: HexCoord(q: 0, r: -1)))
+        maze = try #require(maze.placing(PlacedTile(down, transform: TileTransform(turns: 3)), at: .origin))
+        #expect(maze.isSealed)
+
+        let paths = maze.paths
+        #expect(paths.paths.count == 1)
+        let path = try #require(paths.paths.first)
+        #expect(!path.isClosed)
+        #expect(path.steps.count == 2)
+        // It sets off from one room and finishes in the other.
+        #expect(path.steps[0].startsInRoom)
+        #expect(path.steps[0].runsBackwards)
+        #expect(!path.steps[1].startsInRoom)
+        #expect(!path.steps[1].runsBackwards)
+    }
+
+    @Test func aPathIsFollowedIntoADeadEndFromEitherSide() throws {
+        // A dead end below, a straight pipe, a dead end above. The trace
+        // starts from the lowest cell, which here is the top dead end.
+        let end = try Tile(portsPerEdge: 3, pipes: [Pipe(.endSmall, at: port(3, 1))])
+        let straight = try Tile(portsPerEdge: 3, pipes: [Pipe(.corner, a: port(0, 1), b: port(3, 1))])
+        var maze = Maze(portsPerEdge: 3, radius: 1)
+        maze = try #require(maze.placing(PlacedTile(straight), at: .origin))
+        maze = try #require(maze.placing(PlacedTile(end), at: HexCoord(q: 0, r: -1)))
+        maze = try #require(maze.placing(PlacedTile(end, transform: TileTransform(turns: 3)), at: HexCoord(q: 0, r: 1)))
+        let paths = maze.paths
+        #expect(paths.paths.count == 1)
+        let path = try #require(paths.paths.first)
+        #expect(path.steps.count == 3)
+        #expect(path.steps.first?.pipe.isDeadEnd == true)
+        #expect(path.steps.last?.pipe.isDeadEnd == true)
+        #expect(path.steps.first?.startsInRoom == true)
+        #expect(path.steps.last?.startsInRoom == false)
+    }
+}
+
+@Suite struct GoalTests {
+    private func labyrinth(seed: UInt64, symmetry: Symmetry = .none) -> (Maze, MazeGenerator) {
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        var random = SeededGenerator(seed: seed)
+        var maze = Maze(portsPerEdge: 4, radius: 3)
+        maze.setOpenings([PortRef(coord: HexCoord(q: 0, r: -3), port: port(0, 1))])
+        maze.setGoals([.origin])
+        generator.fill(&maze, symmetry: symmetry, using: &random)
+        return (maze, generator)
+    }
+
+    @Test func anOddNumberOfEndsCannotBeGrown() {
+        var random = SeededGenerator(seed: 1)
+        var maze = Maze(portsPerEdge: 4, radius: 2)
+        maze.setGoals([.origin])
+        #expect(maze.endCount == 1)
+        #expect(MazeGenerator(tiles: []).step(&maze, symmetry: .none, using: &random) == .stuck(.origin))
+        #expect(maze.cells.isEmpty)
+    }
+
+    @Test func aGoalIsOpenUntilItIsFilledAndSwapsOutItsTile() throws {
+        var maze = Maze(portsPerEdge: 4, radius: 2)
+        maze.setGoals([.origin, HexCoord(q: 9, r: 9)])
+        #expect(maze.goals == [.origin])
+        #expect(maze.openCells == [.origin])
+        let through = try Tile(portsPerEdge: 4, pipes: [Pipe(.corner, a: port(0, 1), b: port(3, 2))])
+        maze = try #require(maze.placing(PlacedTile(through), at: .origin))
+        // No longer a goal: its tile is taken out so an ordinary one can go in.
+        maze.setGoals([])
+        #expect(maze.cells[.origin] == nil)
+    }
+
+    @Test(arguments: [Symmetry.none, .mirror, .sixth])
+    func oneEntranceAndOneGoalMakeALabyrinth(symmetry: Symmetry) throws {
+        for seed in 0..<3 {
+            let (maze, _) = labyrinth(seed: UInt64(seed), symmetry: symmetry)
+            #expect(maze.isSealed, "seed \(seed)")
+
+            // The goal tile has the only dead end in the maze.
+            let goalTile = try #require(maze.cells[.origin])
+            #expect(goalTile.oriented.deadEnds.count == 1)
+            let elsewhere = maze.cells.filter { $0.key != .origin }.values.flatMap(\.oriented.deadEnds)
+            #expect(elsewhere.isEmpty)
+
+            // Exactly one path has ends: from the opening to the goal.
+            let open = maze.paths.paths.filter { !$0.isClosed }
+            #expect(open.count == 1)
+            let ends = try #require(open.first?.ends)
+            let opening = try #require(maze.openings.first)
+            let goalEnd = PortRef(coord: .origin, port: goalTile.oriented.deadEnds[0].a)
+            #expect(Set([ends.start, ends.finish]) == [opening, goalEnd])
+            for (coord, placed) in maze.cells {
+                #expect(maze.fits(placed.code, at: coord))
+                #expect(!CoverageMap(tile: placed.source).hasViolation)
+            }
+        }
+    }
+
+    /// The goal goes in first and is not disturbed by later regrowth, so it
+    /// keeps the largest room however the rest of the maze turns out.
+    @Test(arguments: [4, 6])
+    func theGoalKeepsTheLargestRoom(portsPerEdge: Int) throws {
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        for seed in 0..<8 {
+            var random = SeededGenerator(seed: UInt64(seed))
+            var maze = Maze(portsPerEdge: portsPerEdge, radius: 3)
+            maze.setOpenings([PortRef(coord: HexCoord(q: 0, r: -3), port: port(0, 1))])
+            maze.setGoals([.origin])
+            #expect(generator.fill(&maze, symmetry: .none, using: &random), "seed \(seed)")
+            let end = try #require(maze.cells[.origin]?.oriented.deadEnds.first)
+            #expect(end.kind == .endLarge, "seed \(seed)")
+            #expect(maze.cells[.origin]?.oriented.pipes.count == 1)
+        }
+    }
+
+    @Test func mergingLeavesOnePathFromEntranceToGoal() throws {
+        var single = 0
+        for seed in 0..<6 {
+            var (maze, generator) = labyrinth(seed: UInt64(seed))
+            var random = SeededGenerator(seed: UInt64(seed))
+            LoopMerger(generator: generator).mergeAll(&maze, using: &random)
+            #expect(maze.isSealed)
+            #expect(maze.cells[.origin]?.oriented.deadEnds.count == 1)
+            let paths = maze.paths
+            #expect(paths.paths.filter { !$0.isClosed }.count == 1)
+            #expect(maze.weave().conflicts == 0)
+            if paths.paths.count == 1 {
+                single += 1
+                let pipeCount = maze.cells.values.reduce(0) { $0 + $1.oriented.pipes.count }
+                #expect(paths.paths[0].steps.count == pipeCount)
+                // The whole maze is one walk from the edge to the room.
+                #expect(paths.paths[0].steps.first?.pipe.isDeadEnd == true || paths.paths[0].steps.last?.pipe.isDeadEnd == true)
+            }
+        }
+        #expect(single >= 4)
+    }
+
+    @Test func twoGoalsMakeAPathFromRoomToRoom() throws {
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        var random = SeededGenerator(seed: 3)
+        var maze = Maze(portsPerEdge: 4, radius: 3)
+        maze.setGoals([HexCoord(q: -2, r: 1), HexCoord(q: 2, r: -1)])
+        #expect(generator.fill(&maze, symmetry: .none, using: &random))
+        let open = maze.paths.paths.filter { !$0.isClosed }
+        #expect(open.count == 1)
+        #expect(open.first?.steps.first?.pipe.isDeadEnd == true)
+        #expect(open.first?.steps.last?.pipe.isDeadEnd == true)
+    }
+
+    @Test func libraryDeadEndTilesAreOnlyUsedOnGoals() throws {
+        let stub = try Tile(portsPerEdge: 4, pipes: [Pipe(.endSmall, at: port(0, 1))])
+        let plain = try Tile(portsPerEdge: 4, pipes: [Pipe(.corner, a: port(0, 1), b: port(3, 2))])
+        let double = try Tile(portsPerEdge: 4, pipes: [Pipe(.endSmall, at: port(0, 1)), Pipe(.endSmall, at: port(3, 1))])
+        let generator = MazeGenerator(tiles: [stub, plain, double])
+        #expect(generator.goalOptions.allSatisfy { $0.source.id == stub.id })
+        #expect(generator.goalOptions.count == 12)
+        #expect(generator.options.allSatisfy { $0.source.id == plain.id })
+    }
+
+    @Test func aLabyrinthSurvivesSavingAndDrawing() throws {
+        var (maze, generator) = labyrinth(seed: 1)
+        var random = SeededGenerator(seed: 1)
+        LoopMerger(generator: generator).mergeAll(&maze, using: &random)
+        let loaded = try JSONDecoder().decode(Maze.self, from: JSONEncoder().encode(maze))
+        #expect(loaded == maze)
+        #expect(loaded.goals == [.origin])
+
+        let svg = MazeSVG.render(maze)
+        let openIndex = try #require(maze.paths.paths.firstIndex { !$0.isClosed }) + 1
+        let wall = svg.components(separatedBy: "\n").first { $0.contains("id=\"wall-\(openIndex)\"") }
+        #expect(wall?.contains(" Z\"") == false)
+        #expect(!svg.contains("nan"))
+    }
+}

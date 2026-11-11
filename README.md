@@ -11,12 +11,14 @@ editor and a tile-set generator), brought together in one codebase.
 
 - **Tile**: a flat-top hexagon with a fixed number of ports on each edge.
 - **Pipe**: a tube joining two ports. Kinds are bezier, corner, and circular
-  rooms in three sizes.
+  rooms in three sizes. A dead end uses a single port and stops in a room.
 - **Edge code**: which ports on each edge are in use. Two tiles can sit next
   to each other when their touching edges agree.
 - **Variants**: tiles with the same edge code but different internal
   connections. Swapping variants is how separate loops get merged into a
   single path.
+- **Maze**: tiles on a hex-shaped region with a sealed outline. Openings on
+  the outline and goal cells inside give a path its two ends.
 - **Overlap rule**: at most two pipes may cross at any point, which is what
   makes a clean over/under weave possible.
 

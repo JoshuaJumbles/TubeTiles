@@ -44,6 +44,9 @@ final class EditorModel {
     var savedTileCount: Int { library.library(portsPerEdge: tile.portsPerEdge).tiles.count }
 
     var style: TileStyle { TileStyle(portsPerEdge: tile.portsPerEdge) }
+    /// Whether the canvas should mark which free ports are usable: the far
+    /// ends for a pipe being drawn, or every spot a dead end would fit.
+    var highlightsTargets: Bool { selectedPort != nil || kind.isDeadEnd }
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
 
@@ -63,6 +66,11 @@ final class EditorModel {
             return
         }
         selectedPipe = nil
+        if kind.isDeadEnd {
+            // A dead end needs only the one port, so a single tap places it.
+            _ = place(from: port, to: port)
+            return
+        }
         guard let start = selectedPort, start != port else {
             select(port: selectedPort == port ? nil : port)
             message = nil
@@ -76,7 +84,7 @@ final class EditorModel {
     /// Called as a drag that began on `start` moves; `hover` is the port
     /// nearest the finger, if any.
     func drag(from start: Port?, to hover: Port?) {
-        guard let start, tile.pipe(at: start) == nil else { return }
+        guard !kind.isDeadEnd, let start, tile.pipe(at: start) == nil else { return }
         if selectedPort != start {
             selectedPipe = nil
             select(port: start)
@@ -108,6 +116,7 @@ final class EditorModel {
 
     func choose(_ kind: PipeKind) {
         self.kind = kind
+        if kind.isDeadEnd { selectedPort = nil }
         refreshTargets()
     }
 
@@ -222,6 +231,12 @@ final class EditorModel {
     }
 
     private func refreshTargets() {
+        if kind.isDeadEnd {
+            validTargets = Set(tile.freePorts.filter {
+                PlacementRules.error(adding: Pipe(kind, at: $0), to: tile, coverage: coverage) == nil
+            })
+            return
+        }
         guard let start = selectedPort else {
             validTargets = []
             return
@@ -240,6 +255,7 @@ final class EditorModel {
         case .needsTwoEdges: "Corners and rooms need two different edges."
         case .mustRunStraightAcross: "Across the tile, this kind only runs straight."
         case .overlap: "Too many pipes would overlap there."
+        case .deadEndNeedsOnePort: "A dead end uses a single port."
         }
     }
 }
