@@ -179,4 +179,45 @@ struct SeededGenerator: RandomNumberGenerator {
         library.remove(id: tile.id)
         #expect(library.tiles.map(\.id) == [other.id])
     }
+
+    @Test func profilesGroupTurnedAndFlippedTiles() throws {
+        var library = TileLibrary(name: "Test", portsPerEdge: 4)
+        var tile = Tile(portsPerEdge: 4)
+        try tile.add(Pipe(.bezier, a: port(0, 0), b: port(2, 3)))
+        try tile.add(Pipe(.bezier, a: port(1, 1), b: port(4, 2)))
+        library.save(tile)
+        for transform in [TileTransform(turns: 2), TileTransform(turns: 5, mirrored: true)] {
+            var copy = Tile(portsPerEdge: 4)
+            for pipe in tile.transformed(by: transform).pipes {
+                try copy.add(pipe)
+            }
+            library.save(copy)
+        }
+        #expect(library.tilesByEdgeCode.count == 3)
+        #expect(library.tilesByProfile.count == 1)
+        #expect(library.tilesByProfile[tile.edgeCode.canonical]?.count == 3)
+    }
+
+    @Test func canonicalCodeIsTheSameForEveryPlacement() {
+        var generator = SeededGenerator(seed: 11)
+        var tile = Tile(portsPerEdge: 5)
+        tile.fillRandomly(using: &generator)
+        let canonical = tile.edgeCode.canonical
+        for transform in TileTransform.allCases {
+            #expect(tile.edgeCode.transformed(by: transform).canonical == canonical)
+        }
+    }
+
+    @Test func edgePatterns() throws {
+        #expect(EdgeCode.allPatterns(portsPerEdge: 6).count == 36)
+        #expect(EdgeCode.allPatterns(portsPerEdge: 3) == [0, 1, 2, 3, 5, 7])
+        #expect(EdgeCode.pattern(0b100, width: 3) == 0b001)
+
+        var library = TileLibrary(name: "Test", portsPerEdge: 3)
+        var tile = Tile(portsPerEdge: 3)
+        // Edge 0 shows 100, edge 2 shows 001: the same pattern, counted once.
+        try tile.add(Pipe(.bezier, a: port(0, 0), b: port(2, 2)))
+        library.save(tile)
+        #expect(library.edgePatternCounts == [0: 1, 1: 1])
+    }
 }
