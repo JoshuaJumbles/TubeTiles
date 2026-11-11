@@ -6,6 +6,8 @@ import TubeKit
 struct EditorView: View {
     var model: EditorModel
 
+    @State private var showsTools = false
+
     private static let paper = TilePalette.paper
 
     var body: some View {
@@ -53,11 +55,76 @@ struct EditorView: View {
             .padding(.horizontal, 16)
 
             TileCanvas(model: model)
+                // A hex never reaches the corners of its area, so the tool
+                // button sits there without covering any of the tile.
+                .overlay(alignment: .topLeading) {
+                    toolButton.padding(10)
+                }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// Shows the tool in use, and opens the choice of tools.
+    private var toolButton: some View {
+        Button { showsTools = true } label: {
+            VStack(spacing: 2) {
+                Group {
+                    if model.isErasing {
+                        Image(systemName: "eraser")
+                            .font(.title2)
+                            .foregroundStyle(TilePalette.negative)
+                    } else {
+                        KindIcon(kind: model.kind)
+                    }
+                }
+                .frame(width: 44, height: 34)
+                HStack(spacing: 3) {
+                    Text(model.isErasing ? "Erase" : model.kind.shortTitle)
+                        .font(.caption2.weight(.semibold))
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                }
+                .foregroundStyle(Color.primary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 12).fill(TilePalette.face))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(model.isErasing ? TilePalette.negative : Color.accentColor, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Tool: \(model.isErasing ? "Eraser" : model.kind.shortTitle)")
+        .popover(isPresented: $showsTools) {
+            toolPicker
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    /// The pipe kinds the library allows, and the eraser.
+    private var toolPicker: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.fixed(64), spacing: 8), count: 4), spacing: 8) {
+            ForEach(model.allowedKinds, id: \.self) { kind in
+                KindButton(kind: kind, isSelected: !model.isErasing && model.kind == kind) {
+                    model.choose(kind)
+                    showsTools = false
+                }
+            }
+            ToolCell(title: "Erase", isSelected: model.isErasing) {
+                model.chooseEraser()
+                showsTools = false
+            } icon: {
+                Image(systemName: "eraser")
+                    .font(.title3)
+                    .foregroundStyle(TilePalette.negative)
+            }
+        }
+        .padding(14)
+    }
+
     private var hint: String {
+        if model.isErasing { return "Tap a pipe, or drag across several, to erase." }
         if model.selectedPipe != nil { return "Pipe selected. Delete it, or tap elsewhere." }
         if model.selectedPort != nil { return "Tap a green port to finish the pipe." }
         if model.kind.isDeadEnd { return "Tap a green port to end a pipe there in a room." }
@@ -65,23 +132,13 @@ struct EditorView: View {
     }
 }
 
-/// Controls for the editor: pipe kind, edit actions, library and saving.
+/// Controls for the editor: edit actions, library and saving. The tool in
+/// use is chosen from the button on the canvas.
 private struct EditorPanel: View {
     var model: EditorModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Pipe").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                    ForEach(model.allowedKinds, id: \.self) { kind in
-                        KindButton(kind: kind, isSelected: model.kind == kind) {
-                            model.choose(kind)
-                        }
-                    }
-                }
-            }
-
             HStack(spacing: 10) {
                 Button { model.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .disabled(!model.canUndo)
@@ -119,10 +176,19 @@ private struct EditorPanel: View {
 
             HStack(spacing: 10) {
                 Button { model.newTile() } label: {
-                    Label("New tile", systemImage: "plus.square").frame(maxWidth: .infinity)
+                    Label("New", systemImage: "plus.square").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
                 .disabled(model.tile.pipes.isEmpty)
+                .accessibilityLabel("New tile")
+
+                // Carry on from this tile as a separate one.
+                Button { model.makeVariant() } label: {
+                    Label("Variant", systemImage: "plus.square.on.square").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.tile.pipes.isEmpty)
+                .accessibilityLabel("New variant of this tile")
 
                 Button { model.save() } label: {
                     Label(model.isSaved ? "Update" : "Save", systemImage: "square.and.arrow.down")
