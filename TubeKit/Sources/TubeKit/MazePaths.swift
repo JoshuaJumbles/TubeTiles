@@ -21,9 +21,16 @@ public struct MazePath: Hashable, Sendable {
     }
 
     public var steps: [Step]
-    /// True for a loop. False for a strand with loose ends, which only
-    /// happens while a maze is unfinished.
+    /// True for a loop. False for a strand with two ends: either a path
+    /// running between the maze's openings, or a loose piece of an
+    /// unfinished maze.
     public var isClosed: Bool
+
+    /// The pipe ends where an open path starts and finishes. Nil for a loop.
+    public var ends: (start: PortRef, finish: PortRef)? {
+        guard !isClosed, let first = steps.first, let last = steps.last else { return nil }
+        return (PortRef(coord: first.coord, port: first.entry), PortRef(coord: last.coord, port: last.exit))
+    }
 
     /// Both ends of every pipe on the path.
     public var portRefs: Set<PortRef> {

@@ -4,11 +4,11 @@ import TubeKit
 /// The colour given to each path, shared by the screen and the exported
 /// drawing so the two match.
 enum PathTint {
-    /// Red, green and blue from 0 to 1. A loop keeps its colour as long as
+    /// Red, green and blue from 0 to 1. A path keeps its colour as long as
     /// its first pipe stays put, so merging elsewhere does not reshuffle the
-    /// rest. Loose strands are grey.
+    /// rest.
     static func components(for path: MazePath) -> (red: Double, green: Double, blue: Double) {
-        guard path.isClosed, let first = path.steps.first else { return (0.86, 0.86, 0.86) }
+        guard let first = path.steps.first else { return (1, 1, 1) }
         let seed = first.coord.q * 73 + first.coord.r * 151 + first.pipe.a.edge * 31 + first.pipe.a.slot * 17
         var hue = (Double(seed) * 0.618034).truncatingRemainder(dividingBy: 1)
         if hue < 0 { hue += 1 }

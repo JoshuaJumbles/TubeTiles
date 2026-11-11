@@ -81,8 +81,10 @@ final class GeneratorModel {
         if maze.cells.isEmpty { return "Empty. Tap a cell, or press Grow." }
         let open = openCells.count
         guard open == 0 else { return "\(maze.cells.count) of \(maze.cellCount) cells · \(open) open" }
-        let loops = paths.loopCount
-        return "Sealed · \(maze.cells.count) tiles · " + (loops == 1 ? "one path" : "\(loops) loops")
+        let count = paths.paths.count
+        let isOpen = maze.openings.count == 2
+        let what = count == 1 ? "one path" : "\(count) \(isOpen ? "paths" : "loops")"
+        return "Sealed · \(maze.cells.count) tiles · " + what
     }
 
     private var generator: MazeGenerator {
@@ -110,10 +112,65 @@ final class GeneratorModel {
 
     private func reset(portsPerEdge: Int, radius: Int) {
         stop()
+        let openings = maze.openings
+        let sameShape = portsPerEdge == maze.portsPerEdge && radius == maze.radius
         maze = Maze(portsPerEdge: portsPerEdge, radius: radius)
+        // Clearing the tiles keeps the entrance and exit; a different size
+        // or port count has a different outline, so they are dropped.
+        if sameShape { maze.setOpenings(openings) }
         selected = nil
         kept = []
         message = nil
+    }
+
+    // MARK: Entrance and exit
+
+    /// Adds or removes an opening on the outline. A path needs two ends, so
+    /// the maze is only patched up once there are none or two.
+    func toggleOpening(_ ref: PortRef) {
+        stop()
+        selected = nil
+        var openings = maze.openings
+        if openings.contains(ref) {
+            openings.remove(ref)
+        } else if openings.count >= 2 {
+            message = "There is already an entrance and an exit. Tap one to remove it first."
+            return
+        } else {
+            openings.insert(ref)
+        }
+        applyOpenings(openings)
+    }
+
+    /// Puts an entrance at a random spot on the outline and an exit directly
+    /// opposite it.
+    func addOpposedOpenings() {
+        guard let entrance = maze.outlinePorts.randomElement(using: &random) else { return }
+        let halfTurn = TileTransform(turns: 3)
+        let exit = PortRef(
+            coord: entrance.coord.transformed(by: halfTurn),
+            port: halfTurn.apply(to: entrance.port, portsPerEdge: portsPerEdge)
+        )
+        applyOpenings([entrance, exit])
+    }
+
+    func removeOpenings() {
+        applyOpenings([])
+    }
+
+    private func applyOpenings(_ openings: Set<PortRef>) {
+        stop()
+        let hadTiles = !maze.cells.isEmpty
+        maze.setOpenings(openings)
+        pruneKept()
+        if maze.openings.count == 1 {
+            message = "Now add the other end: tap another spot just outside the outline."
+        } else if hadTiles {
+            // Regrow the tiles beside the changed openings.
+            fill()
+        } else {
+            message = nil
+        }
     }
 
     /// Forgets kept loops whose pipes are no longer in the maze.
@@ -187,7 +244,7 @@ final class GeneratorModel {
         let paths = paths
         let free = paths.paths.count - keptPaths(in: paths).count
         if paths.paths.count == 1 {
-            message = "One continuous path."
+            message = maze.openings.count == 2 ? "One path from entrance to exit." : "One continuous path."
         } else if free <= 1 {
             message = "Only kept loops are left."
         } else if symmetry == .mirror {

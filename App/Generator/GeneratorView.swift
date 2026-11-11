@@ -69,7 +69,7 @@ struct GeneratorView: View {
         if model.selected != nil { return "Tile selected. Swap or delete it, or tap elsewhere." }
         if model.maze.cells.isEmpty { return "Mazes grow from the middle and seal at the outline." }
         if !model.openCells.isEmpty { return "Dashed cells still need a tile." }
-        if model.showsPaths { return "Each colour is one loop. Tap a loop to keep it out of merging." }
+        if model.showsPaths { return "Each colour is one path. Tap one to keep it out of merging." }
         return "Tap a tile to change it, or an empty cell to add one."
     }
 }
@@ -170,6 +170,24 @@ private struct GeneratorPanel: View {
                             .pickerStyle(.menu)
                         }
                     }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        if model.maze.openings.isEmpty {
+                            Button { model.addOpposedOpenings() } label: {
+                                Label("Add entrance and exit", systemImage: "arrow.left.and.right")
+                                    .frame(maxWidth: .infinity)
+                            }
+                        } else {
+                            Button(role: .destructive) { model.removeOpenings() } label: {
+                                Label("Remove entrance and exit", systemImage: "xmark")
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                        Text("Or tap just outside the outline to place each end yourself.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.bordered)
 
                     Toggle("Make up tiles the library lacks", isOn: $model.allowsGeneratedTiles)
 
