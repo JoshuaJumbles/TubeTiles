@@ -7,6 +7,11 @@ struct TileFrame {
     /// View points per tile unit (the hex circumradius).
     var scale: CGFloat
 
+    init(center: CGPoint, scale: CGFloat) {
+        self.center = center
+        self.scale = scale
+    }
+
     /// The largest frame that fits a whole hex inside `size`.
     init(fitting size: CGSize, padding: CGFloat = 0) {
         center = CGPoint(x: size.width / 2, y: size.height / 2)
