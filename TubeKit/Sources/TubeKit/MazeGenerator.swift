@@ -1,0 +1,288 @@
+import Foundation
+
+/// Grows a maze one cell at a time.
+///
+/// Each step fills the most constrained open cell. Library tiles are tried
+/// first. If none matches the neighbours and synthesis is on, a tile is built
+/// to fit. A tile is only placed if every cell it opens up can still be
+/// filled, which avoids most dead ends; when a cell cannot be filled at all,
+/// the tiles around it are taken out and the area regrows.
+public struct MazeGenerator: Sendable {
+    /// How tiles are made up when the library has nothing that fits.
+    public struct Synthesis: Sendable, Hashable {
+        /// Chance, per free edge, that a made-up tile sends new pipes across
+        /// it. 0 only ever closes off what is open; higher values keep the
+        /// maze spreading towards the outline.
+        public var growth: Double
+        public var kinds: [PipeKind]
+
+        public init(growth: Double = 0.5, kinds: [PipeKind] = TileSynthesizer.defaultKinds) {
+            self.growth = growth
+            self.kinds = kinds
+        }
+    }
+
+    /// Every distinct way of placing a library tile on one cell.
+    public let options: [PlacedTile]
+    /// Nil restricts the maze to library tiles only.
+    public var synthesis: Synthesis?
+
+    public init(tiles: [Tile], synthesis: Synthesis? = Synthesis()) {
+        var seen: Set<Set<Pipe>> = []
+        var options: [PlacedTile] = []
+        for tile in tiles where !tile.pipes.isEmpty {
+            for transform in TileTransform.allCases {
+                let placed = PlacedTile(tile, transform: transform)
+                if seen.insert(Set(placed.oriented.pipes)).inserted {
+                    options.append(placed)
+                }
+            }
+        }
+        self.options = options
+        self.synthesis = synthesis
+    }
+
+    public enum Step: Equatable, Sendable {
+        /// A tile was placed here (and at its images).
+        case placed(HexCoord)
+        /// Nothing fitted here, so the tiles around it were taken out.
+        case cleared(HexCoord)
+        /// No pipe is left hanging: the maze is finished.
+        case sealed
+        /// Nothing could be done for this cell.
+        case stuck(HexCoord)
+    }
+
+    // MARK: Choosing a tile
+
+    /// Library options whose edges match what is already around `coord`.
+    private func matching(_ maze: Maze, at coord: HexCoord) -> [PlacedTile] {
+        let required = (0..<HexGeometry.edgeCount).map { maze.requirement(at: coord, edge: $0) }
+        return options.filter { option in
+            for edge in 0..<HexGeometry.edgeCount {
+                if let value = required[edge], value != option.code.values[edge] { return false }
+            }
+            return true
+        }
+    }
+
+    /// The symmetry transforms, other than doing nothing, that map `coord`
+    /// onto itself. A tile there must look the same under each of them.
+    private func stabilizer(of coord: HexCoord, symmetry: Symmetry) -> [TileTransform] {
+        symmetry.transforms.filter { $0 != .identity && coord.transformed(by: $0) == coord }
+    }
+
+    /// Builds a tile for `coord` that meets every neighbour, optionally
+    /// opening new pipes across edges that are still free.
+    private func synthesize(
+        for maze: Maze,
+        at coord: HexCoord,
+        symmetry: Symmetry,
+        using generator: inout some RandomNumberGenerator
+    ) -> PlacedTile? {
+        guard let synthesis else { return nil }
+        let count = maze.portsPerEdge
+        let fixing = stabilizer(of: coord, symmetry: symmetry)
+
+        var ports: Set<Port> = []
+        var freeEdges: [Int] = []
+        for edge in 0..<HexGeometry.edgeCount {
+            if let value = maze.requirement(at: coord, edge: edge) {
+                for slot in 0..<count where value & (1 << (count - 1 - slot)) != 0 {
+                    ports.insert(Port(edge: edge, slot: slot))
+                }
+            } else {
+                freeEdges.append(edge)
+            }
+        }
+
+        /// A port together with its images, so additions keep the symmetry.
+        func images(of port: Port) -> Set<Port> {
+            Set([port] + fixing.map { $0.apply(to: port, portsPerEdge: count) })
+        }
+        var grown: [Port] = []
+        func open(_ port: Port) {
+            for image in images(of: port) where ports.insert(image).inserted {
+                grown.append(image)
+            }
+        }
+
+        for edge in freeEdges where Double.random(in: 0..<1, using: &generator) < synthesis.growth {
+            let slots = (count >= 4 && Bool.random(using: &generator)) ? 2 : 1
+            for slot in (0..<count).shuffled(using: &generator).prefix(slots) {
+                open(Port(edge: edge, slot: slot))
+            }
+        }
+        // A tile needs at least one pipe.
+        var tries = 0
+        while ports.count < 2, let edge = freeEdges.randomElement(using: &generator), tries < 8 {
+            open(Port(edge: edge, slot: Int.random(in: 0..<count, using: &generator)))
+            tries += 1
+        }
+        // Pipes have two ends, so the port count must be even.
+        if ports.count % 2 == 1 {
+            if fixing.isEmpty, let extra = grown.randomElement(using: &generator) {
+                ports.remove(extra)
+            } else if let spare = freeEdges.shuffled(using: &generator).lazy
+                .flatMap({ edge in (0..<count).map { Port(edge: edge, slot: $0) } })
+                .first(where: { !ports.contains($0) && images(of: $0).count == 1 }) {
+                ports.insert(spare)
+            } else {
+                return nil
+            }
+        }
+        guard !ports.isEmpty else { return nil }
+
+        guard let tile = TileSynthesizer.tile(
+            portsPerEdge: count, ports: ports, invariantUnder: fixing,
+            kinds: synthesis.kinds, using: &generator
+        ) else { return nil }
+        return PlacedTile(tile, isGenerated: true)
+    }
+
+    /// Whether some tile could still go at `coord`.
+    private func canFill(
+        _ maze: Maze,
+        at coord: HexCoord,
+        symmetry: Symmetry,
+        using generator: inout some RandomNumberGenerator
+    ) -> Bool {
+        if matching(maze, at: coord).contains(where: { maze.placing($0, at: coord, symmetry: symmetry) != nil }) {
+            return true
+        }
+        guard synthesis != nil else { return false }
+        if !stabilizer(of: coord, symmetry: symmetry).isEmpty {
+            // Symmetric tiles are hard to build, so actually try.
+            guard let made = synthesize(for: maze, at: coord, symmetry: symmetry, using: &generator) else {
+                return false
+            }
+            return maze.placing(made, at: coord, symmetry: symmetry) != nil
+        }
+        // Otherwise a tile can almost always be built unless the cell is
+        // boxed in with an odd number of pipe ends.
+        var fixedPorts = 0
+        var hasFreeEdge = false
+        for edge in 0..<HexGeometry.edgeCount {
+            if let value = maze.requirement(at: coord, edge: edge) {
+                fixedPorts += value.nonzeroBitCount
+            } else {
+                hasFreeEdge = true
+            }
+        }
+        return hasFreeEdge || fixedPorts % 2 == 0
+    }
+
+    /// Whether placing at `coord` left any neighbouring open cell unfillable.
+    private func strandsNeighbour(
+        _ next: Maze,
+        placedAt coord: HexCoord,
+        symmetry: Symmetry,
+        using generator: inout some RandomNumberGenerator
+    ) -> Bool {
+        let open = Set(next.openCells)
+        let touched = Set(next.images(of: coord, symmetry: symmetry).flatMap { target in
+            (0..<HexGeometry.edgeCount).map { target.neighbour(across: $0) }
+        }).intersection(open).sorted()
+        for cell in touched where !canFill(next, at: cell, symmetry: symmetry, using: &generator) {
+            return true
+        }
+        return false
+    }
+
+    /// The maze with a tile placed at `coord`, or nil if nothing fits there
+    /// without stranding a neighbouring cell.
+    public func placingRandomTile(
+        in maze: Maze,
+        at coord: HexCoord,
+        symmetry: Symmetry,
+        using generator: inout some RandomNumberGenerator
+    ) -> Maze? {
+        guard maze.contains(coord), maze.cells[coord] == nil else { return nil }
+
+        for option in matching(maze, at: coord).shuffled(using: &generator) {
+            guard let next = maze.placing(option, at: coord, symmetry: symmetry) else { continue }
+            if !strandsNeighbour(next, placedAt: coord, symmetry: symmetry, using: &generator) {
+                return next
+            }
+        }
+        guard synthesis != nil else { return nil }
+        for _ in 0..<6 {
+            guard let made = synthesize(for: maze, at: coord, symmetry: symmetry, using: &generator),
+                  let next = maze.placing(made, at: coord, symmetry: symmetry)
+            else { continue }
+            if !strandsNeighbour(next, placedAt: coord, symmetry: symmetry, using: &generator) {
+                return next
+            }
+        }
+        return nil
+    }
+
+    // MARK: Growing
+
+    /// Makes one move towards a sealed maze.
+    public func step(
+        _ maze: inout Maze,
+        symmetry: Symmetry,
+        using generator: inout some RandomNumberGenerator
+    ) -> Step {
+        if maze.cells.isEmpty {
+            // Start at the centre if a tile can sit there under this
+            // symmetry, otherwise as close to it as possible.
+            let starts = maze.coords.sorted { $0.ring != $1.ring ? $0.ring < $1.ring : $0 < $1 }
+            for start in starts.prefix(7) {
+                if let next = placingRandomTile(in: maze, at: start, symmetry: symmetry, using: &generator) {
+                    maze = next
+                    return .placed(start)
+                }
+            }
+            return .stuck(.origin)
+        }
+
+        let open = maze.openCells
+        guard !open.isEmpty else { return .sealed }
+
+        // Fill the cell with the most fixed edges first: it has the fewest
+        // choices, so it is the one most likely to fail if left for later.
+        func fixedEdges(_ coord: HexCoord) -> Int {
+            (0..<HexGeometry.edgeCount).filter { maze.requirement(at: coord, edge: $0) != nil }.count
+        }
+        let most = open.map(fixedEdges).max() ?? 0
+        let target = open.filter { fixedEdges($0) == most }.randomElement(using: &generator)!
+
+        if let next = placingRandomTile(in: maze, at: target, symmetry: symmetry, using: &generator) {
+            maze = next
+            return .placed(target)
+        }
+
+        // Nothing fits. Clear the tiles around the cell so the area can
+        // regrow differently; taking out just one tends to rebuild the same
+        // impossible corner.
+        let neighbours = (0..<HexGeometry.edgeCount)
+            .map { target.neighbour(across: $0) }
+            .filter { maze.cells[$0] != nil }
+        guard !neighbours.isEmpty else { return .stuck(target) }
+        for neighbour in neighbours {
+            maze.remove(at: neighbour, symmetry: symmetry)
+        }
+        return .cleared(target)
+    }
+
+    /// Steps until the maze is sealed or `maxSteps` runs out. Returns whether
+    /// it sealed.
+    @discardableResult
+    public func fill(
+        _ maze: inout Maze,
+        symmetry: Symmetry,
+        maxSteps: Int? = nil,
+        using generator: inout some RandomNumberGenerator
+    ) -> Bool {
+        for _ in 0..<(maxSteps ?? maze.cellCount * 30) {
+            switch step(&maze, symmetry: symmetry, using: &generator) {
+            case .sealed: return true
+            case .stuck: return false
+            case .placed, .cleared: continue
+            }
+        }
+        return maze.isSealed
+    }
+}
