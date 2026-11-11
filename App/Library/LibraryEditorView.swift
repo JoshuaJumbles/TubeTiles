@@ -5,13 +5,17 @@ import TubeKit
 struct LibraryEditorView: View {
     /// The library being edited, or nil to create one.
     var existing: TileLibrary?
-    var onSave: (_ name: String, _ note: String, _ portsPerEdge: Int, _ allowedKinds: Set<PipeKind>) -> Void
+    var onSave: (
+        _ name: String, _ note: String, _ portsPerEdge: Int, _ allowedKinds: Set<PipeKind>, _ deadSlots: Set<Int>
+    ) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var note: String
     @State private var portsPerEdge: Int
     @State private var allowedKinds: Set<PipeKind>
+    /// Slots switched off on every edge.
+    @State private var deadSlots: Set<Int>
 
     static let portRange = 2...8
 
@@ -19,7 +23,7 @@ struct LibraryEditorView: View {
         existing: TileLibrary?,
         suggestedName: String = "",
         suggestedPorts: Int = 6,
-        onSave: @escaping (String, String, Int, Set<PipeKind>) -> Void
+        onSave: @escaping (String, String, Int, Set<PipeKind>, Set<Int>) -> Void
     ) {
         self.existing = existing
         self.onSave = onSave
@@ -27,6 +31,35 @@ struct LibraryEditorView: View {
         _note = State(initialValue: existing?.note ?? "")
         _portsPerEdge = State(initialValue: existing?.portsPerEdge ?? suggestedPorts)
         _allowedKinds = State(initialValue: existing?.allowedKinds ?? Set(PipeKind.allCases))
+        _deadSlots = State(initialValue: existing?.deadSlots ?? [])
+    }
+
+    /// Dead slots that still exist at the current port count.
+    private var validDeadSlots: Set<Int> {
+        deadSlots.filter { $0 < portsPerEdge }
+    }
+
+    /// At least one port per edge has to stay in use.
+    private var hasLivePort: Bool {
+        validDeadSlots.count < portsPerEdge
+    }
+
+    /// Switches a slot, and its mirror image, on or off.
+    private func toggle(slot: Int) {
+        let pair: Set<Int> = [slot, portsPerEdge - 1 - slot]
+        if deadSlots.contains(slot) {
+            deadSlots.subtract(pair)
+        } else {
+            deadSlots.formUnion(pair)
+        }
+    }
+
+    /// Tiles already in the library with a pipe on a port now switched off.
+    private var deadPortTiles: Int {
+        let dead = validDeadSlots
+        return existing?.tiles.filter { tile in
+            tile.occupiedPorts.contains { dead.contains($0.slot) }
+        }.count ?? 0
     }
 
     private var trimmedName: String {
@@ -94,8 +127,48 @@ struct LibraryEditorView: View {
                         }
                     }
                 }
+
+                Section {
+                    // One edge, standing for all six.
+                    HStack(spacing: 0) {
+                        ForEach(0..<portsPerEdge, id: \.self) { slot in
+                            let isDead = validDeadSlots.contains(slot)
+                            Button { toggle(slot: slot) } label: {
+                                ZStack {
+                                    Circle()
+                                        .fill(isDead ? Color.clear : Color.accentColor)
+                                    Circle()
+                                        .stroke(isDead ? Color.secondary.opacity(0.5) : Color.accentColor, lineWidth: 2)
+                                }
+                                .frame(width: 22, height: 22)
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Port \(slot + 1)")
+                            .accessibilityValue(isDead ? "Off" : "On")
+                        }
+                    }
+                    .background(alignment: .center) {
+                        Rectangle().fill(Color.secondary.opacity(0.35)).frame(height: 2)
+                    }
+                } header: {
+                    Text("Ports in use")
+                } footer: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Tap a port to switch it off on every edge. Its mirror image goes with it, so tiles can still be turned and flipped. The editor ignores ports that are off, and tiles the generator makes up never use them.")
+                        if !hasLivePort {
+                            Text("Leave at least one port in use.")
+                                .foregroundStyle(TilePalette.negative)
+                        }
+                        if deadPortTiles > 0 {
+                            Text("^[\(deadPortTiles) tile](inflect: true) already here use a port you have switched off. They stay in the library and are still used.")
+                        }
+                    }
+                }
             }
             .navigationTitle(existing == nil ? "New library" : "Edit library")
+            .onChange(of: portsPerEdge) { _, _ in deadSlots = validDeadSlots }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -103,10 +176,13 @@ struct LibraryEditorView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(existing == nil ? "Create" : "Save") {
-                        onSave(trimmedName, note.trimmingCharacters(in: .whitespacesAndNewlines), portsPerEdge, allowedKinds)
+                        onSave(
+                            trimmedName, note.trimmingCharacters(in: .whitespacesAndNewlines),
+                            portsPerEdge, allowedKinds, validDeadSlots
+                        )
                         dismiss()
                     }
-                    .disabled(trimmedName.isEmpty || !hasThroughKind)
+                    .disabled(trimmedName.isEmpty || !hasThroughKind || !hasLivePort)
                 }
             }
         }

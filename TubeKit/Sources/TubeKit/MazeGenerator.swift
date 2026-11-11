@@ -18,15 +18,25 @@ public struct MazeGenerator: Sendable {
         public var kinds: [PipeKind]
         /// Room sizes to try for a goal, in order.
         public var deadEndKinds: [PipeKind]
+        /// Ports made-up tiles never open a pipe on. A pipe a neighbour
+        /// already sends in is still met, whatever port it arrives at.
+        public var deadPorts: Set<Port>
 
         public init(
             growth: Double = 0.5,
             kinds: [PipeKind] = TileSynthesizer.defaultKinds,
-            deadEndKinds: [PipeKind] = PipeKind.deadEndKinds
+            deadEndKinds: [PipeKind] = PipeKind.deadEndKinds,
+            deadPorts: Set<Port> = []
         ) {
             self.growth = growth
             self.kinds = kinds
             self.deadEndKinds = deadEndKinds
+            self.deadPorts = deadPorts
+        }
+
+        /// The slots on an edge that new pipes may use.
+        func liveSlots(onEdge edge: Int, portsPerEdge: Int) -> [Int] {
+            (0..<portsPerEdge).filter { !deadPorts.contains(Port(edge: edge, slot: $0)) }
         }
 
         /// Made-up tiles that keep to a library's rules, so they look like
@@ -38,7 +48,8 @@ public struct MazeGenerator: Sendable {
             self.init(
                 growth: growth,
                 kinds: TileSynthesizer.kinds(allowing: library.allowedKinds),
-                deadEndKinds: library.deadEndKinds.isEmpty ? PipeKind.deadEndKinds : library.deadEndKinds
+                deadEndKinds: library.deadEndKinds.isEmpty ? PipeKind.deadEndKinds : library.deadEndKinds,
+                deadPorts: library.deadPorts
             )
         }
     }
@@ -146,14 +157,17 @@ public struct MazeGenerator: Sendable {
 
         for edge in freeEdges where Double.random(in: 0..<1, using: &generator) < synthesis.growth {
             let slots = (count >= 4 && Bool.random(using: &generator)) ? 2 : 1
-            for slot in (0..<count).shuffled(using: &generator).prefix(slots) {
+            let live = synthesis.liveSlots(onEdge: edge, portsPerEdge: count)
+            for slot in live.shuffled(using: &generator).prefix(slots) {
                 open(Port(edge: edge, slot: slot))
             }
         }
         // A tile needs at least one pipe.
         var tries = 0
         while ports.count < 2, let edge = freeEdges.randomElement(using: &generator), tries < 8 {
-            open(Port(edge: edge, slot: Int.random(in: 0..<count, using: &generator)))
+            if let slot = synthesis.liveSlots(onEdge: edge, portsPerEdge: count).randomElement(using: &generator) {
+                open(Port(edge: edge, slot: slot))
+            }
             tries += 1
         }
         // Pipes have two ends, so the port count must be even.
@@ -162,7 +176,9 @@ public struct MazeGenerator: Sendable {
                 ports.remove(extra)
             } else if let spare = freeEdges.shuffled(using: &generator).lazy
                 .flatMap({ edge in (0..<count).map { Port(edge: edge, slot: $0) } })
-                .first(where: { !ports.contains($0) && images(of: $0).count == 1 }) {
+                .first(where: {
+                    !ports.contains($0) && !synthesis.deadPorts.contains($0) && images(of: $0).count == 1
+                }) {
                 ports.insert(spare)
             } else {
                 return nil
@@ -204,9 +220,16 @@ public struct MazeGenerator: Sendable {
         // to be odd. Add one on a free edge if it is not, as near the middle
         // of the edge as possible so a large room has space.
         if ports.count % 2 == 0 {
-            guard let edge = freeEdges.randomElement(using: &generator) else { return nil }
-            let middle = [(count - 1) / 2, count / 2].randomElement(using: &generator) ?? 0
-            ports.insert(Port(edge: edge, slot: middle))
+            let centre = Double(count - 1) / 2
+            let choices: [Port] = freeEdges.shuffled(using: &generator).compactMap { edge in
+                // The live slot nearest mid-edge, either side at random when
+                // two are equally near.
+                let live = synthesis.liveSlots(onEdge: edge, portsPerEdge: count).shuffled(using: &generator)
+                return live.min { abs(Double($0) - centre) < abs(Double($1) - centre) }
+                    .map { Port(edge: edge, slot: $0) }
+            }
+            guard let port = choices.first else { return nil }
+            ports.insert(port)
         }
 
         for kind in synthesis.deadEndKinds {

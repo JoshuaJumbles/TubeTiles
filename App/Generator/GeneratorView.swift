@@ -242,12 +242,18 @@ private struct GeneratorPanel: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Toggle("Make up tiles the library lacks", isOn: $model.allowsGeneratedTiles)
-                        if model.allowsGeneratedTiles, let library = model.activeLibrary,
-                           library.allowedKinds.count < PipeKind.allCases.count {
-                            Text("Made-up tiles use only this library's kinds: "
-                                + PipeKind.allCases.filter(library.allowedKinds.contains).map(\.shortTitle).joined(separator: ", ") + ".")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                        if model.allowsGeneratedTiles, let library = model.activeLibrary {
+                            if library.allowedKinds.count < PipeKind.allCases.count {
+                                Text("Made-up tiles use only this library's kinds: "
+                                    + PipeKind.allCases.filter(library.allowedKinds.contains).map(\.shortTitle).joined(separator: ", ") + ".")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if !library.deadPorts.isEmpty {
+                                Text("They also keep off the ports this library has switched off.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
 

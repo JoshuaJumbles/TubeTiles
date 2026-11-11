@@ -31,13 +31,14 @@ struct MazeLayout {
     }
 
     /// The outline port nearest a point outside the region, if the point is
-    /// close enough to the outline to mean it.
-    func outlinePort(at point: CGPoint, in maze: Maze) -> PortRef? {
+    /// close enough to the outline to mean it. Ports that fail `allowed` are
+    /// passed over, so a tap beside one reaches the nearest usable port.
+    func outlinePort(at point: CGPoint, in maze: Maze, allowed: (PortRef) -> Bool = { _ in true }) -> PortRef? {
         let target = gridPoint(point)
         func position(_ ref: PortRef) -> Point {
             ref.coord.center + HexGeometry.position(of: ref.port, portsPerEdge: maze.portsPerEdge)
         }
-        let nearest = maze.outlinePorts.min { position($0).distance(to: target) < position($1).distance(to: target) }
+        let nearest = maze.outlinePorts.filter(allowed).min { position($0).distance(to: target) < position($1).distance(to: target) }
         guard let nearest, position(nearest).distance(to: target) <= 0.6 else { return nil }
         return nearest
     }

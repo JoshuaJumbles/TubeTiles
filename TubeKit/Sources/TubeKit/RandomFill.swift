@@ -3,13 +3,15 @@ extension Tile {
     /// attempts fit.
     ///
     /// `kinds` may repeat entries to make some kinds more likely than others.
+    /// Ports in `avoiding` are never used.
     @discardableResult
     public mutating func addRandomPipe(
         kinds: [PipeKind] = PipeKind.throughKinds,
+        avoiding dead: Set<Port> = [],
         attempts: Int = 30,
         using generator: inout some RandomNumberGenerator
     ) -> Pipe? {
-        let free = freePorts
+        let free = freePorts.filter { !dead.contains($0) }
         guard free.count >= 2, !kinds.isEmpty else { return nil }
         let coverage = CoverageMap(tile: self)
         for _ in 0..<attempts {
@@ -29,10 +31,11 @@ extension Tile {
     @discardableResult
     public mutating func fillRandomly(
         kinds: [PipeKind] = PipeKind.throughKinds,
+        avoiding dead: Set<Port> = [],
         using generator: inout some RandomNumberGenerator
     ) -> Int {
         var added = 0
-        while addRandomPipe(kinds: kinds, using: &generator) != nil {
+        while addRandomPipe(kinds: kinds, avoiding: dead, using: &generator) != nil {
             added += 1
         }
         return added

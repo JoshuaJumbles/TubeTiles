@@ -85,8 +85,13 @@ public struct Crossing: Hashable, Sendable {
 /// goes over, under, over, under as it is followed.
 public struct Weave: Sendable {
     public let crossings: [Crossing]
-    /// Crossings where alternation could not be honoured. Zero for any maze
-    /// whose pipes cross cleanly.
+    /// Places where a path could not alternate and goes over twice, or under
+    /// twice, in a row.
+    ///
+    /// Always zero when every path is a loop or ends on the outline. A path
+    /// that ends inside the maze, at a goal, can make a few unavoidable:
+    /// where a loop of the path encloses the end, the crossings on that loop
+    /// cannot all alternate.
     public let conflicts: Int
     private let byCoord: [HexCoord: [Crossing]]
 
@@ -160,7 +165,9 @@ extension Maze {
     /// Following any path, consecutive crossings must differ: over then
     /// under. Each such pair is a constraint between two crossings, and the
     /// constraints are solved by fixing one crossing and letting the rest
-    /// follow. For pipes that cross cleanly this always works out.
+    /// follow. For loops, and for paths that end on the outline, this always
+    /// works out. A path ending at a goal inside the maze may leave a few
+    /// constraints unmet; see `Weave.conflicts`.
     public func weave() -> Weave {
         var crossings: [Crossing] = []
         var indexesByPipe: [PortRef: [Int]] = [:]

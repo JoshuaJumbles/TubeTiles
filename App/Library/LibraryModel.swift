@@ -83,18 +83,23 @@ final class LibraryModel {
 
     /// Creates a library and makes it current.
     @discardableResult
-    func create(name: String, note: String, portsPerEdge: Int, allowedKinds: Set<PipeKind>) throws -> TileLibrary {
-        let library = TileLibrary(name: name, note: note, portsPerEdge: portsPerEdge, allowedKinds: allowedKinds)
+    func create(
+        name: String, note: String, portsPerEdge: Int, allowedKinds: Set<PipeKind>, deadSlots: Set<Int> = []
+    ) throws -> TileLibrary {
+        let library = TileLibrary(
+            name: name, note: note, portsPerEdge: portsPerEdge, allowedKinds: allowedKinds, deadSlots: deadSlots
+        )
         try commit(library)
         select(library.id)
         return library
     }
 
-    func update(id: UUID, name: String, note: String, allowedKinds: Set<PipeKind>) throws {
+    func update(id: UUID, name: String, note: String, allowedKinds: Set<PipeKind>, deadSlots: Set<Int>) throws {
         guard var library = library(id: id) else { return }
         library.name = name
         library.note = note
         library.allowedKinds = allowedKinds
+        library.setDeadSlots(deadSlots)
         try commit(library)
     }
 

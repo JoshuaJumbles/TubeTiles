@@ -274,12 +274,21 @@ final class GeneratorModel {
 
     /// Adds or removes an opening on the outline. A path needs two ends, so
     /// the maze is only patched up once there are none or two.
+    /// Whether an opening may be put at a port: not if the library the maze
+    /// is drawing from has that port switched off.
+    func allowsOpening(at ref: PortRef) -> Bool {
+        activeLibrary?.isLive(ref.port) ?? true
+    }
+
     func toggleOpening(_ ref: PortRef) {
         stop()
         selected = nil
         var openings = maze.openings
         if openings.contains(ref) {
             openings.remove(ref)
+        } else if !allowsOpening(at: ref) {
+            message = "That port is switched off in this library."
+            return
         } else if openings.count >= 2 {
             message = "There is already an entrance and an exit. Tap one to remove it first."
             return
@@ -292,7 +301,7 @@ final class GeneratorModel {
     /// Puts an entrance at a random spot on the outline and an exit directly
     /// opposite it.
     func addOpposedOpenings() {
-        guard let entrance = maze.outlinePorts.randomElement(using: &random) else { return }
+        guard let entrance = maze.outlinePorts.filter(allowsOpening).randomElement(using: &random) else { return }
         let halfTurn = TileTransform(turns: 3)
         let exit = PortRef(
             coord: entrance.coord.transformed(by: halfTurn),
