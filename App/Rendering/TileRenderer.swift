@@ -68,6 +68,10 @@ struct TilePalette {
     static let negative = Color(
         light: Color(red: 0.72, green: 0.25, blue: 0.20), dark: Color(red: 0.95, green: 0.48, blue: 0.42)
     )
+    /// Marks things worth a second look that are still allowed.
+    static let caution = Color(
+        light: Color(red: 0.70, green: 0.42, blue: 0.05), dark: Color(red: 0.98, green: 0.72, blue: 0.35)
+    )
 
     static let standard = TilePalette()
     static let rejected = TilePalette(

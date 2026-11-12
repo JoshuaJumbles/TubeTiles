@@ -61,6 +61,21 @@ struct EditorView: View {
                 .overlay(alignment: .bottomTrailing) {
                     toolButton.padding(10)
                 }
+                // Another free corner: a warning that stays up, whatever the
+                // line under the title is saying.
+                .overlay(alignment: .topLeading) {
+                    if let note = model.duplicateNote {
+                        Label(note, systemImage: "square.on.square")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(TilePalette.caution)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(TilePalette.face))
+                            .overlay(Capsule().stroke(TilePalette.caution, lineWidth: 1.5))
+                            .padding(10)
+                            .transition(.opacity)
+                    }
+                }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

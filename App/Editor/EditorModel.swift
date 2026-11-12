@@ -42,6 +42,15 @@ final class EditorModel {
     /// Whether the tile on the canvas is already in the library, so saving
     /// updates it rather than adding a new one.
     var isSaved: Bool { library.contains(tile) }
+    /// Set when another tile in the library already draws these pipes, as
+    /// they are or turned or flipped. Saving is still allowed.
+    var duplicateNote: String? {
+        guard let twin = library.current.twin(of: tile) else { return nil }
+        if twin.transform == .identity { return "Already in library" }
+        return twin.transform.mirrored
+            ? "Already in library, flipped"
+            : "Already in library, turned"
+    }
     var savedTileCount: Int { library.current.tiles.count }
     var libraryName: String { library.current.name }
     var libraryID: UUID { library.currentID }
