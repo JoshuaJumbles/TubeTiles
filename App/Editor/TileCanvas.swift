@@ -24,6 +24,9 @@ struct TileCanvas: View {
             let highlightsTargets = model.highlightsTargets
             let deadPorts = model.deadPorts
             let ghost = model.ghost
+            let brief = model.gap?.brief
+            let mustUse = brief?.mustUse ?? []
+            let mustAvoid = brief?.mustAvoid ?? []
 
             Canvas { context, _ in
                 let hex = TileRenderer.hexPath(in: frame)
@@ -58,10 +61,35 @@ struct TileCanvas: View {
                 for edge in 0..<HexGeometry.edgeCount {
                     for slot in 0..<tile.portsPerEdge {
                         let port = Port(edge: edge, slot: slot)
-                        guard !occupied.contains(port) else { continue }
                         let center = frame.point(HexGeometry.position(of: port, portsPerEdge: tile.portsPerEdge))
                         func dot(_ radius: CGFloat) -> Path {
                             Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+                        }
+                        guard !occupied.contains(port) else {
+                            // A pipe where the gap needs the port empty.
+                            if mustAvoid.contains(port) {
+                                context.stroke(dot(10), with: .color(TilePalette.negative), lineWidth: 2.5)
+                            }
+                            continue
+                        }
+                        if mustUse.contains(port), port != selectedPort {
+                            // The gap needs a pipe here. Still green while
+                            // it is a valid far end for the pipe in hand.
+                            let wanted = highlightsTargets && validTargets.contains(port) ? Self.good : Color.accentColor
+                            context.fill(dot(4.5), with: .color(wanted))
+                            context.stroke(dot(10), with: .color(wanted), lineWidth: 2.5)
+                            continue
+                        }
+                        if mustAvoid.contains(port), !deadPorts.contains(port), port != selectedPort,
+                           !(highlightsTargets && validTargets.contains(port)) {
+                            // The gap needs this port empty: a small cross.
+                            var cross = Path()
+                            cross.move(to: CGPoint(x: center.x - 3.5, y: center.y - 3.5))
+                            cross.addLine(to: CGPoint(x: center.x + 3.5, y: center.y + 3.5))
+                            cross.move(to: CGPoint(x: center.x + 3.5, y: center.y - 3.5))
+                            cross.addLine(to: CGPoint(x: center.x - 3.5, y: center.y + 3.5))
+                            context.stroke(cross, with: .color(Self.outline.opacity(0.45)), lineWidth: 1.5)
+                            continue
                         }
                         if deadPorts.contains(port) {
                             // Switched off in this library: a faint ring, so

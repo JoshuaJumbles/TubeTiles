@@ -10,6 +10,12 @@ struct GhostPipe {
     var conflicts: [Point]
 }
 
+/// A cell of the maze that a tile is being drawn for.
+struct GapBrief: Equatable {
+    var brief: TileBrief
+    var coord: HexCoord
+}
+
 /// State and actions for the tile editor.
 @MainActor
 @Observable
@@ -25,6 +31,12 @@ final class EditorModel {
     private(set) var validTargets: Set<Port> = []
     private(set) var ghost: GhostPipe?
     private(set) var message: String?
+    /// Set while a tile is being drawn to fill a cell of the maze. The
+    /// canvas marks the ports the cell needs.
+    private(set) var gap: GapBrief?
+    /// Hands a finished tile back to the generator, for the cell it was
+    /// drawn for.
+    var onPlace: ((Tile, HexCoord) -> Void)?
 
     private var coverage: CoverageMap
     private var undoStack: [Tile] = []
@@ -51,6 +63,22 @@ final class EditorModel {
             ? "Already in library, flipped"
             : "Already in library, turned"
     }
+    /// Whether the tile on the canvas would fill the gap it is drawn for.
+    var fitsGap: Bool { gap?.brief.isMet(by: tile) ?? false }
+
+    /// How far the tile is from filling the gap, in a few words.
+    var gapStatus: String? {
+        guard let brief = gap?.brief else { return nil }
+        if brief.isMet(by: tile) { return "Fits the gap" }
+        var needs: [String] = []
+        let missing = brief.missing(in: tile).count
+        let unwanted = brief.unwanted(in: tile).count
+        if missing > 0 { needs.append("\(missing) to connect") }
+        if unwanted > 0 { needs.append("\(unwanted) to clear") }
+        if !brief.hasRightDeadEnds(tile) { needs.append(brief.needsDeadEnd ? "one dead end" : "no dead ends") }
+        return needs.isEmpty ? "Gap: add a pipe" : "Gap: " + needs.joined(separator: ", ")
+    }
+
     var savedTileCount: Int { library.current.tiles.count }
     var libraryName: String { library.current.name }
     var libraryID: UUID { library.currentID }
@@ -80,6 +108,7 @@ final class EditorModel {
             undoStack.removeAll()
             redoStack.removeAll()
             apply(Tile(portsPerEdge: current.portsPerEdge))
+            gap = nil
         }
         if !current.allowedKinds.contains(kind), let first = allowedKinds.first {
             choose(first)
@@ -243,6 +272,29 @@ final class EditorModel {
         var next = saved
         if asCopy { next.id = UUID() }
         commit(next)
+    }
+
+    // MARK: Drawing for a gap in the maze
+
+    /// Starts a fresh tile for a cell of the maze and marks what it needs.
+    func design(for gap: GapBrief) {
+        guard gap.brief.portsPerEdge == library.current.portsPerEdge else { return }
+        if !tile.pipes.isEmpty { commit(Tile(portsPerEdge: tile.portsPerEdge)) }
+        self.gap = gap
+        message = nil
+    }
+
+    func dismissGap() {
+        gap = nil
+    }
+
+    /// Saves the tile and puts it in the cell it was drawn for.
+    func saveAndPlace() {
+        guard let gap, fitsGap else { return }
+        save()
+        guard isSaved else { return }
+        self.gap = nil
+        onPlace?(tile, gap.coord)
     }
 
     func addRandomPipe() {
