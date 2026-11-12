@@ -9,6 +9,7 @@ struct GeneratorView: View {
 
     @State private var showsMazes = false
     @State private var showsPreview = false
+    @State private var showsTools = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -42,15 +43,21 @@ struct GeneratorView: View {
                 Text(model.summary)
                     .font(.headline)
                     .foregroundStyle(Color.primary)
+                // Always two lines tall, so the maze does not shift under
+                // the finger when the wording changes.
                 Text(model.message ?? hint)
                     .font(.footnote)
                     .foregroundStyle(Color.secondary)
                     .multilineTextAlignment(.center)
+                    .lineLimit(2, reservesSpace: true)
             }
             .padding(.top, 10)
             .padding(.horizontal, 56)
 
             MazeCanvas(model: model)
+                .overlay(alignment: .bottomTrailing) {
+                    toolButton.padding(10)
+                }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .topLeading) {
@@ -98,16 +105,78 @@ struct GeneratorView: View {
             .foregroundStyle(Color.primary)
     }
 
+    /// Shows the tool in use, and opens the choice of tools.
+    private var toolButton: some View {
+        Button { showsTools = true } label: {
+            ToolBadge(title: model.tool.title, tint: model.tool.tint) {
+                Image(systemName: model.tool.symbol)
+                    .font(.title2)
+                    .foregroundStyle(model.tool.tint)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Tool: \(model.tool.title)")
+        .popover(isPresented: $showsTools) {
+            HStack(spacing: 8) {
+                ForEach(GeneratorModel.Tool.allCases, id: \.self) { tool in
+                    ToolCell(title: tool.title, isSelected: model.tool == tool) {
+                        model.tool = tool
+                        showsTools = false
+                    } icon: {
+                        Image(systemName: tool.symbol)
+                            .font(.title3)
+                            .foregroundStyle(tool.tint)
+                    }
+                    .frame(width: 64)
+                }
+            }
+            .padding(14)
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
     private var hint: String {
-        if model.selected != nil { return "Tile selected. Swap or delete it, or tap elsewhere." }
-        if model.maze.cells.isEmpty { return "Mazes grow from the middle and seal at the outline." }
-        if !model.openCells.isEmpty { return "Dashed cells still need a tile." }
-        if model.showsPaths { return "Each colour is one path. Tap one to keep it out of merging." }
-        return "Tap a tile to change it, or an empty cell to add one."
+        switch model.tool {
+        case .place:
+            if model.maze.cells.isEmpty { return "Mazes grow from the middle and seal at the outline." }
+            if !model.openCells.isEmpty { return "Dashed cells still need a tile. Tap one to fill it." }
+            return "Tap a tile to swap it, or an empty cell to add one."
+        case .delete:
+            return "Tap a tile to remove it."
+        case .endpoint:
+            return "Tap a cell for a goal, or just outside the outline for an entrance or exit."
+        case .lock:
+            return "Each colour is one path. Tap one to lock it out of merging, or to release it."
+        }
     }
 }
 
-/// Controls for the generator: growing, symmetry, size and hand edits.
+extension GeneratorModel.Tool {
+    var title: String {
+        switch self {
+        case .place: "Place"
+        case .delete: "Delete"
+        case .endpoint: "Endpoint"
+        case .lock: "Lock loop"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .place: "hexagon"
+        case .delete: "trash"
+        case .endpoint: "scope"
+        case .lock: "lock"
+        }
+    }
+
+    var tint: Color {
+        self == .delete ? TilePalette.negative : .accentColor
+    }
+}
+
+/// Controls for the generator: growing, symmetry and size. Hand edits are
+/// made with the tool chosen on the canvas.
 private struct GeneratorPanel: View {
     @Bindable var model: GeneratorModel
     @State private var showsOptions = false
@@ -144,23 +213,6 @@ private struct GeneratorPanel: View {
             .buttonStyle(.bordered)
 
             HStack(spacing: 10) {
-                Button { model.rerollSelected() } label: {
-                    Label("Swap tile", systemImage: "arrow.triangle.2.circlepath").frame(maxWidth: .infinity)
-                }
-                .disabled(model.selected == nil)
-                Button(role: .destructive) { model.deleteSelected() } label: {
-                    Label("Delete tile", systemImage: "trash").frame(maxWidth: .infinity)
-                }
-                .disabled(model.selected == nil)
-                Button { model.clear() } label: {
-                    Label("Clear", systemImage: "xmark.square").frame(maxWidth: .infinity)
-                }
-                .disabled(model.maze.cells.isEmpty)
-            }
-            .buttonStyle(.bordered)
-            .labelStyle(.titleOnly)
-
-            HStack(spacing: 10) {
                 Button { model.toggleMerging() } label: {
                     Label(
                         model.activity == .merging ? "Pause" : "Merge loops",
@@ -176,6 +228,13 @@ private struct GeneratorPanel: View {
                 }
                 .toggleStyle(.button)
                 .buttonStyle(.bordered)
+
+                Button(role: .destructive) { model.clear() } label: {
+                    Label("Clear", systemImage: "xmark.square")
+                }
+                .buttonStyle(.bordered)
+                .labelStyle(.titleOnly)
+                .disabled(model.maze.cells.isEmpty)
             }
 
             LabeledContent("Symmetry") {
@@ -216,7 +275,7 @@ private struct GeneratorPanel: View {
                                     .frame(maxWidth: .infinity)
                             }
                         }
-                        Text("Or tap just outside the outline to place each end yourself.")
+                        Text("Or place each end yourself with the Endpoint tool.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -234,7 +293,7 @@ private struct GeneratorPanel: View {
                                     .frame(maxWidth: .infinity)
                             }
                         }
-                        Text("A goal ends a path in a room. Touch and hold any cell to make it one.")
+                        Text("A goal ends a path in a room. The Endpoint tool makes any cell one.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

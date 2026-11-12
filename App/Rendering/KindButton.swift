@@ -38,6 +38,32 @@ struct KindIcon: View {
     }
 }
 
+/// The button that shows the tool in use and opens the choice of tools. It
+/// sits in the bottom right corner of a canvas, within reach of a thumb.
+struct ToolBadge<Icon: View>: View {
+    var title: String
+    var tint: Color = .accentColor
+    @ViewBuilder var icon: () -> Icon
+
+    var body: some View {
+        VStack(spacing: 2) {
+            icon()
+                .frame(width: 44, height: 34)
+            HStack(spacing: 3) {
+                Text(title)
+                    .font(.caption2.weight(.semibold))
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundStyle(Color.primary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 12).fill(TilePalette.face))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(tint, lineWidth: 2))
+    }
+}
+
 /// One choice in a grid of tools or kinds: a picture, a short title, and a
 /// highlight when it is the one in use.
 struct ToolCell<Icon: View>: View {

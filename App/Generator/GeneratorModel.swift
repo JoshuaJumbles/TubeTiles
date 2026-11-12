@@ -31,9 +31,20 @@ final class GeneratorModel {
     var allowsGeneratedTiles = true
     /// How readily made-up tiles send out new pipes, 0 to 1.
     var growth = 0.5
-    /// Colours each path so separate loops can be told apart. While on,
-    /// tapping a pipe keeps or releases its loop instead of selecting a tile.
-    var showsPaths = true
+    /// Colours each path so separate loops can be told apart.
+    var showsPaths = true {
+        // Locking a loop means picking it out by its colour.
+        didSet { if !showsPaths, tool == .lock { tool = .place } }
+    }
+    /// What a tap on the maze does.
+    var tool: Tool = .place {
+        didSet {
+            guard tool != oldValue else { return }
+            selected = nil
+            message = nil
+            if tool == .lock { showsPaths = true }
+        }
+    }
     /// Pipe ends on loops that merging must leave alone.
     private(set) var kept: Set<PortRef> = [] {
         didSet { if kept != oldValue { scheduleAutosave() } }
@@ -46,6 +57,18 @@ final class GeneratorModel {
 
     enum Activity {
         case growing, merging
+    }
+
+    /// One thing at a time: a tap on the maze does what the tool in use says.
+    enum Tool: CaseIterable {
+        /// Fills an empty cell, or swaps a tile for another that fits.
+        case place
+        /// Removes a tile.
+        case delete
+        /// Makes a cell a goal, or opens an entrance or exit on the outline.
+        case endpoint
+        /// Keeps a loop out of merging, or releases it.
+        case lock
     }
 
     var isRunning: Bool { activity != nil }
@@ -332,7 +355,7 @@ final class GeneratorModel {
         if goals.contains(coord) {
             goals.remove(coord)
         } else if goals.count >= 2 {
-            message = "There are already two goals. Touch and hold one to remove it first."
+            message = "There are already two goals. Tap one to remove it first."
             return
         } else {
             goals.insert(coord)
@@ -454,7 +477,7 @@ final class GeneratorModel {
             default: "One continuous path."
             }
         } else if free <= 1 {
-            message = "Only kept loops are left."
+            message = "Only locked loops are left."
         } else if !allowsGeneratedTiles {
             message = "No library tile joins the remaining loops. Made-up tiles could."
         } else if symmetry == .mirror {
@@ -495,7 +518,7 @@ final class GeneratorModel {
         let refs = paths.paths[index].portRefs
         if kept.isDisjoint(with: refs) {
             kept.insert(PortRef(coord: coord, port: nearest.a))
-            message = "Loop kept. Merging will leave it alone."
+            message = "Loop locked. Merging will leave it alone."
         } else {
             kept.subtract(refs)
             message = "Loop released."
@@ -525,53 +548,59 @@ final class GeneratorModel {
 
     // MARK: Hand editing
 
-    /// A tap on an empty cell grows a tile there. A tap on a tile selects it,
-    /// or, while paths are shown, keeps or releases the loop under the finger.
+    /// Applies the tool in use to the cell under the finger.
     func tap(_ coord: HexCoord?, local: Point = .zero) {
         stop()
-        guard let coord, maze.contains(coord) else {
-            selected = nil
-            return
-        }
-        if maze.cells[coord] != nil {
-            if showsPaths {
-                selected = nil
-                toggleKept(at: coord, local: local)
-            } else {
-                selected = selected == coord ? nil : coord
-            }
-            return
-        }
         selected = nil
+        guard let coord, maze.contains(coord) else { return }
+        switch tool {
+        case .place:
+            if maze.cells[coord] == nil { place(at: coord) } else { swap(at: coord) }
+        case .delete:
+            delete(at: coord)
+        case .endpoint:
+            toggleGoal(coord)
+        case .lock:
+            if maze.cells[coord] != nil { toggleKept(at: coord, local: local) }
+        }
+    }
+
+    /// A tap just outside the outline. Only the endpoint tool uses it.
+    func tapOutline(_ ref: PortRef) {
+        guard tool == .endpoint else { return }
+        toggleOpening(ref)
+    }
+
+    private func place(at coord: HexCoord) {
         if let next = generator.placingRandomTile(in: maze, at: coord, symmetry: symmetry, using: &random) {
             maze = next
             message = nil
             pruneKept()
         } else {
+            // Left marked, so it is clear which cell could not be filled.
+            selected = coord
             message = "Nothing fits in that cell."
         }
     }
 
-    /// Removes the selected tile and its images under the current symmetry.
-    func deleteSelected() {
-        guard let selected else { return }
-        maze.remove(at: selected, symmetry: symmetry)
-        self.selected = nil
-        message = nil
-        pruneKept()
-    }
-
-    /// Swaps the selected tile for a different one that fits the same spot.
-    func rerollSelected() {
-        guard let selected else { return }
+    /// Swaps a tile for a different one that fits the same spot.
+    private func swap(at coord: HexCoord) {
         var trial = maze
-        trial.remove(at: selected, symmetry: symmetry)
-        if let next = generator.placingRandomTile(in: trial, at: selected, symmetry: symmetry, using: &random) {
+        trial.remove(at: coord, symmetry: symmetry)
+        if let next = generator.placingRandomTile(in: trial, at: coord, symmetry: symmetry, using: &random) {
             maze = next
             message = nil
             pruneKept()
         } else {
             message = "No other tile fits there."
         }
+    }
+
+    /// Removes a tile and its images under the current symmetry.
+    private func delete(at coord: HexCoord) {
+        guard maze.cells[coord] != nil else { return }
+        maze.remove(at: coord, symmetry: symmetry)
+        message = nil
+        pruneKept()
     }
 }
