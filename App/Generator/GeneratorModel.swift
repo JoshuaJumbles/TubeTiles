@@ -455,6 +455,8 @@ final class GeneratorModel {
             }
         } else if free <= 1 {
             message = "Only kept loops are left."
+        } else if !allowsGeneratedTiles {
+            message = "No library tile joins the remaining loops. Made-up tiles could."
         } else if symmetry == .mirror {
             message = "No more joins keep the mirror symmetry."
         } else {

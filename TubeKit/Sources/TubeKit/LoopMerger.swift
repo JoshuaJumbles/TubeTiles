@@ -3,6 +3,11 @@
 /// Two loops that pass through the same tile can be merged by rewiring that
 /// tile: the same ports, joined up differently. The tile's edges do not
 /// change, so its neighbours are undisturbed.
+///
+/// The merger follows the generator's rules. Where the generator may make
+/// tiles up, the merger may rewire a tile, using only the pipe kinds the
+/// generator allows. Where it may not, the merger only swaps in tiles from
+/// the library.
 public struct LoopMerger: Sendable {
     public var generator: MazeGenerator
 
@@ -39,8 +44,10 @@ public struct LoopMerger: Sendable {
             return next
         }
 
+        // Nil when only library tiles may be used.
+        let allowedKinds = self.generator.synthesis?.kinds
         var kindOrder: [PipeKind] = []
-        for kind in (self.generator.synthesis?.kinds ?? TileSynthesizer.defaultKinds) where !kindOrder.contains(kind) {
+        for kind in allowedKinds ?? [] where !kindOrder.contains(kind) {
             kindOrder.append(kind)
         }
 
@@ -74,6 +81,9 @@ public struct LoopMerger: Sendable {
                 }
             }
 
+            // Anything further makes a tile that is not in the library.
+            guard let allowedKinds else { continue }
+
             // Otherwise swap partners between two pipes, leaving the rest of
             // the tile alone.
             for (first, second) in pairs.shuffled(using: &generator) {
@@ -86,9 +96,10 @@ public struct LoopMerger: Sendable {
                         portsPerEdge: maze.portsPerEdge,
                         uncheckedPipes: pipes.filter { $0 != first && $0 != second }
                     )
-                    // Keep the original pipe kinds if they still fit.
-                    let firstKinds = [first.kind] + kindOrder.filter { $0 != first.kind }
-                    let secondKinds = [second.kind] + kindOrder.filter { $0 != second.kind }
+                    // Keep the original pipe kinds if they still fit and
+                    // are allowed.
+                    let firstKinds = kindOrder.filter { $0 == first.kind } + kindOrder.filter { $0 != first.kind }
+                    let secondKinds = kindOrder.filter { $0 == second.kind } + kindOrder.filter { $0 != second.kind }
                     for kindA in firstKinds {
                         var withOne = rest
                         guard (try? withOne.add(Pipe(kindA, a: a1, b: a2))) != nil else { continue }
@@ -116,7 +127,7 @@ public struct LoopMerger: Sendable {
                     portsPerEdge: maze.portsPerEdge, ports: placed.oriented.occupiedPorts,
                     invariantUnder: fixing,
                     deadEnd: ends.first.map { ($0.a, $0.kind) },
-                    kinds: self.generator.synthesis?.kinds ?? TileSynthesizer.defaultKinds, using: &generator
+                    kinds: allowedKinds, using: &generator
                 ) else { continue }
                 if let next = improved(PlacedTile(tile, isGenerated: true), at: coord) {
                     maze = next

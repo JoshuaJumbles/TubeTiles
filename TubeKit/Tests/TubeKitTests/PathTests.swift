@@ -103,6 +103,55 @@ private func sealedMaze(seed: UInt64, symmetry: Symmetry = .none, radius: Int = 
         #expect(single >= 5)
     }
 
+    /// Merging used to fall back to every kind when it had no rules to go
+    /// by, which put angular pipes into mazes made of curves.
+    @Test func mergingKeepsToTheAllowedKinds() {
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6, kinds: [.bezier]))
+        var merged = 0
+        for seed in 0..<6 {
+            var random = SeededGenerator(seed: UInt64(seed))
+            var maze = Maze(portsPerEdge: 4, radius: 3)
+            generator.fill(&maze, symmetry: .none, using: &random)
+            merged += LoopMerger(generator: generator).mergeAll(&maze, using: &random)
+            for placed in maze.cells.values {
+                #expect(placed.oriented.pipes.allSatisfy { $0.kind == .bezier })
+            }
+        }
+        #expect(merged > 0)
+    }
+
+    @Test func withoutMadeUpTilesMergingOnlyUsesLibraryTiles() {
+        var merged = 0
+        for seed in 0..<6 {
+            var (maze, maker) = sealedMaze(seed: UInt64(seed))
+            var random = SeededGenerator(seed: 50 + UInt64(seed))
+            // A library of the maze's own tiles and their rewired forms.
+            var rewired = maze
+            LoopMerger(generator: maker).mergeAll(&rewired, using: &random)
+            let tiles = (Array(maze.cells.values) + Array(rewired.cells.values)).map(\.oriented)
+            let library = MazeGenerator(tiles: tiles, synthesis: nil)
+
+            let before = maze.paths.paths.count
+            merged += LoopMerger(generator: library).mergeAll(&maze, using: &random)
+            #expect(maze.paths.paths.count <= before)
+            #expect(maze.isSealed)
+            let known = library.options + library.goalOptions
+            for placed in maze.cells.values {
+                #expect(known.contains { $0.looksLike(placed) })
+            }
+        }
+        #expect(merged > 0)
+    }
+
+    @Test func withoutMadeUpTilesOrVariantsNothingIsMerged() {
+        var (maze, _) = sealedMaze(seed: 1)
+        let before = maze
+        var random = SeededGenerator(seed: 3)
+        let merges = LoopMerger(generator: MazeGenerator(tiles: [], synthesis: nil)).mergeAll(&maze, using: &random)
+        #expect(merges == 0)
+        #expect(maze == before)
+    }
+
     @Test func keptLoopsAreLeftAlone() throws {
         var (maze, generator) = sealedMaze(seed: 2)
         let paths = maze.paths
