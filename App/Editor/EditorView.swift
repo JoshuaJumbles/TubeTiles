@@ -56,8 +56,9 @@ struct EditorView: View {
 
             TileCanvas(model: model)
                 // A hex never reaches the corners of its area, so the tool
-                // button sits there without covering any of the tile.
-                .overlay(alignment: .topLeading) {
+                // button sits there without covering any of the tile: bottom
+                // right, where a thumb reaches it.
+                .overlay(alignment: .bottomTrailing) {
                     toolButton.padding(10)
                 }
         }
@@ -67,32 +68,18 @@ struct EditorView: View {
     /// Shows the tool in use, and opens the choice of tools.
     private var toolButton: some View {
         Button { showsTools = true } label: {
-            VStack(spacing: 2) {
-                Group {
-                    if model.isErasing {
-                        Image(systemName: "eraser")
-                            .font(.title2)
-                            .foregroundStyle(TilePalette.negative)
-                    } else {
-                        KindIcon(kind: model.kind)
-                    }
+            ToolBadge(
+                title: model.isErasing ? "Erase" : model.kind.shortTitle,
+                tint: model.isErasing ? TilePalette.negative : .accentColor
+            ) {
+                if model.isErasing {
+                    Image(systemName: "eraser")
+                        .font(.title2)
+                        .foregroundStyle(TilePalette.negative)
+                } else {
+                    KindIcon(kind: model.kind)
                 }
-                .frame(width: 44, height: 34)
-                HStack(spacing: 3) {
-                    Text(model.isErasing ? "Erase" : model.kind.shortTitle)
-                        .font(.caption2.weight(.semibold))
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                }
-                .foregroundStyle(Color.primary)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 12).fill(TilePalette.face))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(model.isErasing ? TilePalette.negative : Color.accentColor, lineWidth: 2)
-            )
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Tool: \(model.isErasing ? "Eraser" : model.kind.shortTitle)")

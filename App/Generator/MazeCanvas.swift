@@ -2,7 +2,8 @@ import SwiftUI
 import TubeKit
 
 /// Draws the maze being worked on, with its editing overlays, and reports
-/// taps on cells and on the outline. Pinch to zoom, drag to pan.
+/// taps on cells and on the outline. Pinch to zoom, drag to pan. Every touch
+/// is a plain tap; what it does is up to the tool in use.
 struct MazeCanvas: View {
     @Bindable var model: GeneratorModel
 
@@ -59,33 +60,22 @@ struct MazeCanvas: View {
             .onTapGesture { location in
                 if let cell = layout.cell(at: location, in: maze) {
                     model.tap(cell.coord, local: cell.local)
-                } else if let port = layout.outlinePort(
+                } else if model.tool == .endpoint, let port = layout.outlinePort(
                     at: location, in: maze,
                     // An existing opening can always be tapped to remove it.
                     allowed: { maze.openings.contains($0) || model.allowsOpening(at: $0) }
                 ) {
                     // Just outside the outline: an entrance or exit.
-                    model.toggleOpening(port)
+                    model.tapOutline(port)
                 } else {
                     model.tap(nil)
                 }
             }
-            // Touch and hold a cell to make it a goal, or to stop it being
-            // one.
-            .gesture(
-                LongPressGesture(minimumDuration: 0.45)
-                    .sequenced(before: DragGesture(minimumDistance: 0))
-                    .onEnded { value in
-                        guard case let .second(true, drag?) = value,
-                              let cell = layout.cell(at: drag.startLocation, in: maze)
-                        else { return }
-                        model.toggleGoal(cell.coord)
-                    }
-            )
             .viewportGestures($model.viewport, in: proxy.size)
             // Zoomed in, the maze is larger than its area of the screen.
             .clipped()
-            .overlay(alignment: .bottomTrailing) {
+            // The tool button has the bottom right corner.
+            .overlay(alignment: .bottomLeading) {
                 if !model.viewport.isDefault {
                     Button {
                         withAnimation(.snappy) { model.viewport = Viewport() }
