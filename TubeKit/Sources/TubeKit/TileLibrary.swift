@@ -175,6 +175,28 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
         return copy
     }
 
+    // MARK: Duplicates
+
+    /// A stored tile that draws exactly the pipes of `tile`, as it stands or
+    /// once turned or flipped, and how it has to be placed to do so. The
+    /// stored tile with the same `id` is `tile` itself and does not count.
+    ///
+    /// Pipes of a different kind between the same ports make a different
+    /// tile.
+    public func twin(of tile: Tile) -> (tile: Tile, transform: TileTransform)? {
+        guard !tile.pipes.isEmpty else { return nil }
+        let wanted = Set(tile.pipes)
+        let profile = tile.edgeCode.canonical
+        for stored in tiles where stored.id != tile.id && stored.pipes.count == wanted.count {
+            guard stored.edgeCode.canonical == profile else { continue }
+            // The plain placement first, so an exact copy is reported as one.
+            for transform in TileTransform.allCases where Set(stored.transformed(by: transform).pipes) == wanted {
+                return (stored, transform)
+            }
+        }
+        return nil
+    }
+
     // MARK: Views of the tiles
 
     /// Tiles grouped by exact edge code, as drawn.

@@ -161,3 +161,45 @@ private func sampleTile(portsPerEdge: Int, seed: Int) -> Tile {
         #expect(pipe.a == Port(edge: 0, slot: 2))
     }
 }
+
+@Suite struct DuplicateTests {
+    @Test func findsATileHoweverItIsTurnedOrFlipped() throws {
+        for seed in 0..<10 {
+            let stored = sampleTile(portsPerEdge: 6, seed: seed)
+            var library = TileLibrary(name: "Test", portsPerEdge: 6)
+            library.save(stored)
+            for transform in TileTransform.allCases {
+                // Drawn afresh, so with an identity of its own.
+                let drawn = Tile(
+                    portsPerEdge: 6, uncheckedPipes: stored.transformed(by: transform).pipes
+                )
+                let twin = try #require(library.twin(of: drawn))
+                #expect(twin.tile.id == stored.id)
+                #expect(Set(stored.transformed(by: twin.transform).pipes) == Set(drawn.pipes))
+            }
+        }
+    }
+
+    @Test func aTileIsNotItsOwnTwin() {
+        let stored = sampleTile(portsPerEdge: 6, seed: 3)
+        var library = TileLibrary(name: "Test", portsPerEdge: 6)
+        library.save(stored)
+        #expect(library.twin(of: stored) == nil)
+        #expect(library.twin(of: Tile(portsPerEdge: 6)) == nil)
+    }
+
+    @Test func aDifferentKindOrPairingIsADifferentTile() throws {
+        let a = TubeKit.Port(edge: 0, slot: 1), b = TubeKit.Port(edge: 3, slot: 1)
+        let c = TubeKit.Port(edge: 1, slot: 1), d = TubeKit.Port(edge: 4, slot: 1)
+        let stored = try Tile(portsPerEdge: 3, pipes: [Pipe(.bezier, a: a, b: b), Pipe(.bezier, a: c, b: d)])
+        var library = TileLibrary(name: "Test", portsPerEdge: 3)
+        library.save(stored)
+
+        let otherKind = try Tile(portsPerEdge: 3, pipes: [Pipe(.corner, a: a, b: b), Pipe(.bezier, a: c, b: d)])
+        #expect(library.twin(of: otherKind) == nil)
+        // The same ports joined up differently.
+        let otherPairing = try Tile(portsPerEdge: 3, pipes: [Pipe(.bezier, a: a, b: c), Pipe(.bezier, a: b, b: d)])
+        #expect(otherPairing.edgeCode == stored.edgeCode)
+        #expect(library.twin(of: otherPairing) == nil)
+    }
+}
