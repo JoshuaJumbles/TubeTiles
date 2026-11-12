@@ -63,6 +63,18 @@ struct RootView: View {
             editor.libraryChanged()
             generator.libraryChanged()
         }
+        .onAppear {
+            // A cell goes from the generator to the editor to have a tile
+            // drawn for it, and the finished tile comes back.
+            generator.onDesign = { gap in
+                editor.design(for: gap)
+                screen = .editor
+            }
+            editor.onPlace = { tile, coord in
+                generator.place(tile, at: coord)
+                screen = .generator
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             // Do not wait for the autosave delay when the app is leaving.
             if phase != .active { generator.writeWorkingCopy() }

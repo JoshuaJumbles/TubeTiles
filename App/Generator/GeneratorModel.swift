@@ -69,12 +69,18 @@ final class GeneratorModel {
         case endpoint
         /// Keeps a loop out of merging, or releases it.
         case lock
+        /// Opens the editor to draw a tile for a cell.
+        case design
     }
 
     var isRunning: Bool { activity != nil }
 
+    /// Hands a cell over to the editor, to have a tile drawn for it.
+    var onDesign: ((GapBrief) -> Void)?
+
     private let library: LibraryModel
     private let archive: MazeArchive
+    private var warnsOfPortCount = false
     private var runner: Task<Void, Never>?
     private var autosave: Task<Void, Never>?
     private var random = SystemRandomNumberGenerator()
@@ -260,12 +266,16 @@ final class GeneratorModel {
     func libraryChanged() {
         let current = library.current
         guard current.portsPerEdge != portsPerEdge else {
-            message = nil
+            // Only the warning below is out of date now. Anything else, such
+            // as word of a tile just saved and placed, stays up.
+            if warnsOfPortCount { message = nil }
+            warnsOfPortCount = false
             return
         }
         if maze.cells.isEmpty {
             reset(portsPerEdge: current.portsPerEdge, radius: radius)
         } else {
+            warnsOfPortCount = true
             message = "This maze has \(portsPerEdge) ports per edge. Clear it to use \u{201C}\(current.name)\u{201D}, which has \(current.portsPerEdge)."
         }
     }
@@ -562,6 +572,39 @@ final class GeneratorModel {
             toggleGoal(coord)
         case .lock:
             if maze.cells[coord] != nil { toggleKept(at: coord, local: local) }
+        case .design:
+            design(at: coord)
+        }
+    }
+
+    /// Sends a cell to the editor so a tile can be drawn to fit it.
+    private func design(at coord: HexCoord) {
+        guard activeLibrary != nil else {
+            message = "This maze has \(portsPerEdge) ports per edge and the library has \(library.current.portsPerEdge), so a new tile would not fit."
+            return
+        }
+        guard let brief = maze.brief(at: coord) else { return }
+        selected = coord
+        onDesign?(GapBrief(brief: brief, coord: coord))
+    }
+
+    /// Puts a tile drawn in the editor into the cell it was drawn for,
+    /// replacing whatever is there.
+    func place(_ tile: Tile, at coord: HexCoord) {
+        stop()
+        selected = nil
+        let placed = PlacedTile(tile)
+        var mirrored = maze
+        mirrored.remove(at: coord, symmetry: symmetry)
+        var alone = maze
+        alone.remove(at: coord)
+        // With the symmetry if its images fit too, otherwise just the one.
+        if let next = mirrored.placing(placed, at: coord, symmetry: symmetry) ?? alone.placing(placed, at: coord) {
+            maze = next
+            message = "The new tile is in place."
+            pruneKept()
+        } else {
+            message = "The maze has changed, so the new tile no longer fits there."
         }
     }
 
@@ -579,7 +622,7 @@ final class GeneratorModel {
         } else {
             // Left marked, so it is clear which cell could not be filled.
             selected = coord
-            message = "Nothing fits in that cell."
+            message = "Nothing fits in that cell. The Design tool can draw a tile for it."
         }
     }
 

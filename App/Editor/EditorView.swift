@@ -64,20 +64,53 @@ struct EditorView: View {
                 // Another free corner: a warning that stays up, whatever the
                 // line under the title is saying.
                 .overlay(alignment: .topLeading) {
-                    if let note = model.duplicateNote {
-                        Label(note, systemImage: "square.on.square")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(TilePalette.caution)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Capsule().fill(TilePalette.face))
-                            .overlay(Capsule().stroke(TilePalette.caution, lineWidth: 1.5))
-                            .padding(10)
-                            .transition(.opacity)
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let status = model.gapStatus {
+                            gapBadge(status)
+                        }
+                        if let note = model.duplicateNote {
+                            badge(note, symbol: "square.on.square", tint: TilePalette.caution)
+                        }
                     }
+                    .padding(10)
                 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func badge(_ text: String, symbol: String, tint: Color) -> some View {
+        Label(text, systemImage: symbol)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(TilePalette.face))
+            .overlay(Capsule().stroke(tint, lineWidth: 1.5))
+    }
+
+    /// How the tile stands against the gap it is drawn for, with a way to
+    /// stop drawing for the gap.
+    private func gapBadge(_ status: String) -> some View {
+        let tint = model.fitsGap ? TilePalette.positive : Color.accentColor
+        return HStack(spacing: 6) {
+            Label(status, systemImage: model.fitsGap ? "checkmark.circle.fill" : "puzzlepiece.extension")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tint)
+            Button { model.dismissGap() } label: {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(Color.secondary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Stop drawing for the gap")
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(TilePalette.face))
+        .overlay(Capsule().stroke(tint, lineWidth: 1.5))
     }
 
     /// Shows the tool in use, and opens the choice of tools.
@@ -127,6 +160,12 @@ struct EditorView: View {
 
     private var hint: String {
         if model.isErasing { return "Tap a pipe, or drag across several, to erase." }
+        if model.fitsGap, model.selectedPort == nil, model.selectedPipe == nil {
+            return "It fits. Save & place puts it in the maze."
+        }
+        if model.gap != nil, model.selectedPort == nil, model.selectedPipe == nil, !model.kind.isDeadEnd {
+            return "Ringed ports need a pipe. Crossed ports must stay empty."
+        }
         if model.selectedPipe != nil { return "Pipe selected. Delete it, or tap elsewhere." }
         if model.selectedPort != nil { return "Tap a green port to finish the pipe." }
         if model.kind.isDeadEnd { return "Tap a green port to end a pipe there in a room." }
@@ -192,12 +231,25 @@ private struct EditorPanel: View {
                 .disabled(model.tile.pipes.isEmpty)
                 .accessibilityLabel("New variant of this tile")
 
-                Button { model.save() } label: {
-                    Label(model.isSaved ? "Update" : "Save", systemImage: "square.and.arrow.down")
-                        .frame(maxWidth: .infinity)
+                if model.fitsGap {
+                    // Drawn for a gap in the maze and it fits: save it and
+                    // go back to see it in place.
+                    Button { model.saveAndPlace() } label: {
+                        Text("Save & place")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(TilePalette.positive)
+                } else {
+                    Button { model.save() } label: {
+                        Label(model.isSaved ? "Update" : "Save", systemImage: "square.and.arrow.down")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.tile.pipes.isEmpty)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(model.tile.pipes.isEmpty)
             }
 
             Text("^[\(model.savedTileCount) tile](inflect: true) in \u{201C}\(model.libraryName)\u{201D}. New libraries are made on the Library tab.")

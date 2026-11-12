@@ -117,7 +117,7 @@ struct GeneratorView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Tool: \(model.tool.title)")
         .popover(isPresented: $showsTools) {
-            HStack(spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(72), spacing: 8), count: 3), spacing: 8) {
                 ForEach(GeneratorModel.Tool.allCases, id: \.self) { tool in
                     ToolCell(title: tool.title, isSelected: model.tool == tool) {
                         model.tool = tool
@@ -127,7 +127,6 @@ struct GeneratorView: View {
                             .font(.title3)
                             .foregroundStyle(tool.tint)
                     }
-                    .frame(width: 64)
                 }
             }
             .padding(14)
@@ -147,6 +146,8 @@ struct GeneratorView: View {
             return "Tap a cell for a goal, or just outside the outline for an entrance or exit."
         case .lock:
             return "Each colour is one path. Tap one to lock it out of merging, or to release it."
+        case .design:
+            return "Tap a cell to draw a tile for it in the editor."
         }
     }
 }
@@ -158,6 +159,7 @@ extension GeneratorModel.Tool {
         case .delete: "Delete"
         case .endpoint: "Endpoint"
         case .lock: "Lock loop"
+        case .design: "Design"
         }
     }
 
@@ -167,6 +169,7 @@ extension GeneratorModel.Tool {
         case .delete: "trash"
         case .endpoint: "scope"
         case .lock: "lock"
+        case .design: "pencil.and.outline"
         }
     }
 
