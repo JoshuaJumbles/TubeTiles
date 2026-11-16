@@ -55,8 +55,16 @@ struct GeneratorView: View {
             .padding(.horizontal, 56)
 
             MazeCanvas(model: model)
-                .overlay(alignment: .bottomTrailing) {
-                    toolButton.padding(10)
+                .overlay {
+                    // Left out when open options squeeze the maze down to
+                    // nothing, where it would sit on top of the title.
+                    GeometryReader { area in
+                        if area.size.height > 110 {
+                            toolButton
+                                .padding(10)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        }
+                    }
                 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -143,11 +151,14 @@ struct GeneratorView: View {
         case .delete:
             return "Tap a tile to remove it."
         case .endpoint:
+            if model.hasBounds { return "Tap a cell to make it a goal, or to stop it being one." }
             return "Tap a cell for a goal, or just outside the outline for an entrance or exit."
         case .lock:
             return "Each colour is one path. Tap one to lock it out of merging, or to release it."
         case .design:
             return "Tap a cell to draw a tile for it in the editor."
+        case .bounds:
+            return "Drag to move the bounds. The cross is the centre that symmetry turns about."
         }
     }
 }
@@ -160,6 +171,7 @@ extension GeneratorModel.Tool {
         case .endpoint: "Endpoint"
         case .lock: "Lock loop"
         case .design: "Design"
+        case .bounds: "Bounds"
         }
     }
 
@@ -170,6 +182,7 @@ extension GeneratorModel.Tool {
         case .endpoint: "scope"
         case .lock: "lock"
         case .design: "pencil.and.outline"
+        case .bounds: "rectangle.dashed"
         }
     }
 
@@ -247,11 +260,19 @@ private struct GeneratorPanel: View {
                 .pickerStyle(.menu)
             }
 
-            Stepper(
-                "Radius \(model.radius) · \(model.maze.cellCount) cells",
-                value: Binding(get: { model.radius }, set: { model.setRadius($0) }),
-                in: GeneratorModel.radiusRange
-            )
+            if model.hasBounds {
+                Stepper(
+                    "\(model.boundsColumns) tiles wide · \(model.maze.cellCount) cells",
+                    value: Binding(get: { model.boundsColumns }, set: { model.setBoundsColumns($0) }),
+                    in: GeneratorModel.boundsColumnRange
+                )
+            } else {
+                Stepper(
+                    "Radius \(model.radius) · \(model.maze.cellCount) cells",
+                    value: Binding(get: { model.radius }, set: { model.setRadius($0) }),
+                    in: GeneratorModel.radiusRange
+                )
+            }
 
             DisclosureGroup("Options", isExpanded: $showsOptions) {
                 VStack(alignment: .leading, spacing: 14) {
@@ -266,6 +287,35 @@ private struct GeneratorPanel: View {
                         .pickerStyle(.menu)
                     }
 
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Keep inside a rectangle", isOn: Binding(
+                            get: { model.hasBounds }, set: { model.setBounds($0) }
+                        ))
+                        if model.hasBounds {
+                            LabeledContent("Proportions") {
+                                Picker("Proportions", selection: Binding(
+                                    get: { model.boundsAspect }, set: { model.setBoundsAspect($0) }
+                                )) {
+                                    ForEach(GeneratorModel.BoundsAspect.allCases) { Text($0.title).tag($0) }
+                                }
+                                .pickerStyle(.menu)
+                            }
+                            if model.boundsAspect != .square {
+                                Picker("Orientation", selection: Binding(
+                                    get: { model.boundsAreUpright }, set: { model.setBoundsUpright($0) }
+                                )) {
+                                    Text("Upright").tag(true)
+                                    Text("Sideways").tag(false)
+                                }
+                                .pickerStyle(.segmented)
+                            }
+                            Text("No pipe crosses the rectangle. Move it with the Bounds tool.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if !model.hasBounds {
                     VStack(alignment: .leading, spacing: 6) {
                         if model.maze.openings.isEmpty {
                             Button { model.addOpposedOpenings() } label: {
@@ -283,6 +333,7 @@ private struct GeneratorPanel: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.bordered)
+                    }
 
                     VStack(alignment: .leading, spacing: 6) {
                         if model.maze.goals.isEmpty {

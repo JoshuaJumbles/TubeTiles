@@ -54,15 +54,24 @@ public struct PlacedTile: Hashable, Sendable, Codable {
     }
 }
 
-/// Tiles laid out on a hexagonal region of the grid.
+/// Tiles laid out on a region of the hex grid.
 ///
-/// The region is every cell within `radius` rings of the origin. Its outline
-/// is sealed: no pipe may point out of it, except through an opening. Inside,
-/// a cell may be empty, and an empty cell is fine as long as no neighbouring
-/// pipe points into it.
+/// Without a mask, the region is every cell within `radius` rings of the
+/// origin. Its outline is sealed: no pipe may point out of it, except
+/// through an opening. Inside, a cell may be empty, and an empty cell is
+/// fine as long as no neighbouring pipe points into it.
+///
+/// With a mask, the region is whatever part of that hexagon the mask covers.
+/// Ports outside the mask are closed, cells left without ports are out of
+/// play, and a pipe whose drawn shape would cross the mask is refused. A
+/// masked maze has no openings.
 public struct Maze: Hashable, Sendable, Codable {
     public let portsPerEdge: Int
     public let radius: Int
+    /// The space the maze may take up, or nil for the whole hexagon.
+    public let mask: Mask?
+    /// How the mask falls on the grid. Follows from the three above.
+    private let region: MaskedRegion?
     public private(set) var cells: [HexCoord: PlacedTile] = [:]
     /// Ports on the outline where a pipe is required to leave the region:
     /// the entrance and exit of an open path.
@@ -75,16 +84,53 @@ public struct Maze: Hashable, Sendable, Codable {
     /// none, so a maze can only be finished when this is even.
     public var endCount: Int { openings.count + goals.count }
 
-    public init(portsPerEdge: Int, radius: Int) {
+    public init(portsPerEdge: Int, radius: Int, mask: Mask? = nil) {
         self.portsPerEdge = portsPerEdge
         self.radius = radius
+        self.mask = mask
+        region = mask.map { MaskedRegion(mask: $0, portsPerEdge: portsPerEdge, radius: radius) }
+    }
+
+    /// Enough rings to hold everything `mask` covers, up to `limit`.
+    public static func radius(covering mask: Mask, limit: Int) -> Int {
+        guard let bounds = mask.bounds else { return 1 }
+        // The ring of the cell under each corner of the mask's bounds. A
+        // hexagon of rings is convex, so one that holds the corners holds
+        // everything between them.
+        var furthest = 0.0
+        for x in [bounds.min.x, bounds.max.x] {
+            for y in [bounds.min.y, bounds.max.y] {
+                let q = x / 1.5
+                let r = y / (3.0).squareRoot() - q / 2
+                furthest = max(furthest, abs(q), abs(r), abs(q + r))
+            }
+        }
+        return min(max(Int(furthest.rounded(.up)), 1), max(limit, 1))
+    }
+
+    /// The same tiles on a region of a different shape. A tile stays if its
+    /// cell is still in play and it keeps to the new shape; the rest are
+    /// dropped, as are openings when the new shape has a mask.
+    public func reshaped(radius: Int, mask: Mask?) -> Maze {
+        var next = Maze(portsPerEdge: portsPerEdge, radius: radius, mask: mask)
+        next.goals = goals.filter(next.contains)
+        next.openings = openings.filter(next.isOnOutline)
+        for (coord, placed) in cells where next.contains(coord) && next.staysInside(placed, at: coord) {
+            next.cells[coord] = placed
+        }
+        for coord in next.cells.keys.sorted() {
+            if let placed = next.cells[coord], !next.fits(placed.code, at: coord) {
+                next.cells[coord] = nil
+            }
+        }
+        return next
     }
 
     // Stored as a plain list of cells, in a stable order. Anything in a file
     // that could not be part of this maze (a cell outside the region, a tile
     // with the wrong port count, an opening off the outline) is dropped.
     private enum CodingKeys: String, CodingKey {
-        case portsPerEdge, radius, cells, openings, goals
+        case portsPerEdge, radius, mask, cells, openings, goals
     }
 
     private struct StoredCell: Codable {
@@ -96,10 +142,12 @@ public struct Maze: Hashable, Sendable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             portsPerEdge: try container.decode(Int.self, forKey: .portsPerEdge),
-            radius: try container.decode(Int.self, forKey: .radius)
+            radius: try container.decode(Int.self, forKey: .radius),
+            mask: try container.decodeIfPresent(Mask.self, forKey: .mask)
         )
         for cell in try container.decode([StoredCell].self, forKey: .cells)
-        where contains(cell.coord) && cell.tile.source.portsPerEdge == portsPerEdge {
+        where contains(cell.coord) && cell.tile.source.portsPerEdge == portsPerEdge
+            && staysInside(cell.tile, at: cell.coord) {
             cells[cell.coord] = cell.tile
         }
         let stored = try container.decodeIfPresent([PortRef].self, forKey: .openings) ?? []
@@ -111,6 +159,7 @@ public struct Maze: Hashable, Sendable, Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(portsPerEdge, forKey: .portsPerEdge)
         try container.encode(radius, forKey: .radius)
+        try container.encodeIfPresent(mask, forKey: .mask)
         let stored = cells.keys.sorted().compactMap { coord in
             cells[coord].map { StoredCell(coord: coord, tile: $0) }
         }
@@ -120,8 +169,53 @@ public struct Maze: Hashable, Sendable, Codable {
     }
 
     public func contains(_ coord: HexCoord) -> Bool {
-        coord.ring <= radius
+        coord.ring <= radius && (region?.active.contains(coord) ?? true)
     }
+
+    // MARK: Mask
+
+    /// The ports on `edge` of `coord` that the mask leaves usable, as bits
+    /// in edge-code order. Every port, where there is no mask.
+    public func allowedValue(at coord: HexCoord, edge: Int) -> Int {
+        region?.allowed[coord]?[edge] ?? (1 << portsPerEdge) - 1
+    }
+
+    /// The ports of `coord` that the mask closes.
+    public func closedPorts(at coord: HexCoord) -> Set<Port> {
+        guard let edges = region?.allowed[coord] else { return [] }
+        var closed: Set<Port> = []
+        for (edge, value) in edges.enumerated() {
+            for slot in 0..<portsPerEdge where value & (1 << (portsPerEdge - 1 - slot)) == 0 {
+                closed.insert(Port(edge: edge, slot: slot))
+            }
+        }
+        return closed
+    }
+
+    /// Whether a pipe at `coord` could reach outside the mask, so that its
+    /// shape has to be checked.
+    public func isOnBorder(_ coord: HexCoord) -> Bool {
+        region?.border.contains(coord) ?? false
+    }
+
+    /// Whether `pipe`, drawn in the cell at `coord`, keeps its whole width
+    /// inside the mask.
+    public func staysInside(_ pipe: Pipe, at coord: HexCoord) -> Bool {
+        guard let mask, isOnBorder(coord) else { return true }
+        return MaskedRegion.staysInside(pipe, at: coord, mask: mask, portsPerEdge: portsPerEdge)
+    }
+
+    /// Whether every pipe of `tile`, placed at `coord`, stays inside the
+    /// mask and off the ports it closes.
+    public func staysInside(_ tile: PlacedTile, at coord: HexCoord) -> Bool {
+        guard isOnBorder(coord) else { return true }
+        for edge in 0..<HexGeometry.edgeCount where tile.code.values[edge] & ~allowedValue(at: coord, edge: edge) != 0 {
+            return false
+        }
+        return tile.oriented.pipes.allSatisfy { staysInside($0, at: coord) }
+    }
+
+    // MARK: Cells
 
     /// Every cell of the region, in a stable order.
     public var coords: [HexCoord] {
@@ -130,11 +224,13 @@ public struct Maze: Hashable, Sendable, Codable {
         }.filter(contains)
     }
 
-    public var cellCount: Int { 3 * radius * (radius + 1) + 1 }
+    public var cellCount: Int { region?.active.count ?? 3 * radius * (radius + 1) + 1 }
 
     /// Whether `ref` is a port on the outline, facing out of the region.
+    /// A masked region has no such ports: its edge runs wherever the mask
+    /// does, not along the sides of cells.
     public func isOnOutline(_ ref: PortRef) -> Bool {
-        contains(ref.coord) && ref.port.isValid(portsPerEdge: portsPerEdge)
+        mask == nil && contains(ref.coord) && ref.port.isValid(portsPerEdge: portsPerEdge)
             && !contains(ref.coord.neighbour(across: ref.port.edge))
     }
 
@@ -188,10 +284,14 @@ public struct Maze: Hashable, Sendable, Codable {
         return placed.code.requiredNeighbourValue(forEdge: (edge + 3) % HexGeometry.edgeCount)
     }
 
-    /// Whether an edge code satisfies every requirement at `coord`.
+    /// Whether an edge code satisfies every requirement at `coord`, and
+    /// uses no port the mask closes.
     public func fits(_ code: EdgeCode, at coord: HexCoord) -> Bool {
         for edge in 0..<HexGeometry.edgeCount {
             if let required = requirement(at: coord, edge: edge), required != code.values[edge] {
+                return false
+            }
+            if code.values[edge] & ~allowedValue(at: coord, edge: edge) != 0 {
                 return false
             }
         }
@@ -217,7 +317,8 @@ public struct Maze: Hashable, Sendable, Codable {
 
     /// The maze with `tile` placed at `coord` and at each of its images under
     /// `symmetry`, or nil if any of those cells is taken, the images disagree
-    /// with each other, or a neighbour does not match.
+    /// with each other, a neighbour does not match, or a pipe would cross
+    /// the mask.
     public func placing(_ tile: PlacedTile, at coord: HexCoord, symmetry: Symmetry = .none) -> Maze? {
         guard tile.source.portsPerEdge == portsPerEdge else { return nil }
         var next = self
@@ -235,7 +336,9 @@ public struct Maze: Hashable, Sendable, Codable {
             }
         }
         for target in targets {
-            guard let placed = next.cells[target], next.fits(placed.code, at: target) else { return nil }
+            guard let placed = next.cells[target], next.fits(placed.code, at: target),
+                  next.staysInside(placed, at: target)
+            else { return nil }
         }
         return next
     }

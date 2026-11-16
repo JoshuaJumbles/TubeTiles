@@ -27,12 +27,15 @@ public enum TileSynthesizer {
     ///     under. Needed for cells that a maze symmetry maps onto themselves.
     ///     `ports` must already be closed under them.
     ///   - kinds: Pipe kinds to draw from; repeats make a kind more likely.
+    ///   - allows: A further test every pipe has to pass, such as staying
+    ///     inside a maze's mask.
     public static func tile(
         portsPerEdge: Int,
         ports: some Collection<Port>,
         invariantUnder symmetries: [TileTransform] = [],
         deadEnd: (port: Port, kind: PipeKind)? = nil,
         kinds: [PipeKind] = defaultKinds,
+        where allows: ((Pipe) -> Bool)? = nil,
         using generator: inout some RandomNumberGenerator
     ) -> Tile? {
         var wanted = Set(ports)
@@ -47,6 +50,7 @@ public enum TileSynthesizer {
             // round it.
             let pipe = Pipe(deadEnd.kind, at: deadEnd.port)
             guard deadEnd.kind.isDeadEnd, symmetries.isEmpty, wanted.remove(deadEnd.port) != nil,
+                  allows?(pipe) ?? true,
                   PlacementRules.error(adding: pipe, to: tile, coverage: coverage) == nil
             else { return nil }
             tile.pipes.append(pipe)
@@ -57,7 +61,8 @@ public enum TileSynthesizer {
         var budget = 300
         return pair(
             wanted, into: tile, coverage: coverage,
-            symmetries: symmetries, kinds: kinds.filter { !$0.isDeadEnd }, budget: &budget, using: &generator
+            symmetries: symmetries, kinds: kinds.filter { !$0.isDeadEnd }, allows: allows,
+            budget: &budget, using: &generator
         )
     }
 
@@ -67,6 +72,7 @@ public enum TileSynthesizer {
         coverage: CoverageMap,
         symmetries: [TileTransform],
         kinds: [PipeKind],
+        allows: ((Pipe) -> Bool)?,
         budget: inout Int,
         using generator: inout some RandomNumberGenerator
     ) -> Tile? {
@@ -91,6 +97,7 @@ public enum TileSynthesizer {
                 }
                 let used = group.flatMap { [$0.a, $0.b] }
                 guard Set(used).count == used.count, Set(used).isSubset(of: remaining) else { continue }
+                if let allows, !group.allSatisfy(allows) { continue }
 
                 var next = tile
                 var nextCoverage = coverage
@@ -107,7 +114,7 @@ public enum TileSynthesizer {
 
                 if let finished = pair(
                     remaining.subtracting(used), into: next, coverage: nextCoverage,
-                    symmetries: symmetries, kinds: kinds, budget: &budget, using: &generator
+                    symmetries: symmetries, kinds: kinds, allows: allows, budget: &budget, using: &generator
                 ) {
                     return finished
                 }

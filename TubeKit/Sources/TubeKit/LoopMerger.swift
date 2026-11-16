@@ -127,7 +127,9 @@ public struct LoopMerger: Sendable {
                     portsPerEdge: maze.portsPerEdge, ports: placed.oriented.occupiedPorts,
                     invariantUnder: fixing,
                     deadEnd: ends.first.map { ($0.a, $0.kind) },
-                    kinds: allowedKinds, using: &generator
+                    kinds: allowedKinds,
+                    where: maze.isOnBorder(coord) ? { [maze] in maze.staysInside($0, at: coord) } : nil,
+                    using: &generator
                 ) else { continue }
                 if let next = improved(PlacedTile(tile, isGenerated: true), at: coord) {
                     maze = next

@@ -19,7 +19,7 @@ struct MazePreview: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let layout = MazeLayout(size: proxy.size, radius: maze.radius, padding: 20, viewport: viewport)
+            let layout = MazeLayout(size: proxy.size, maze: maze, padding: 20, viewport: viewport)
             Canvas { context, _ in
                 MazeRenderer.draw(maze, weave: weave, layout: layout, context: &context, showsCells: false)
             }

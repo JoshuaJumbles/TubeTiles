@@ -7,15 +7,41 @@ struct MazeLayout {
     var origin: CGPoint
     var scale: CGFloat
 
-    /// The layout that fits the whole region inside `size`, then zoomed and
-    /// moved by `viewport`.
-    init(size: CGSize, radius: Int, padding: CGFloat, viewport: Viewport = Viewport()) {
-        // The region spans 3r + 2 units across and sqrt(3)(2r + 1) tall.
-        let across = 3 * Double(radius) + 2
-        let tall = HexGeometry.inradius * 2 * Double(2 * radius + 1)
+    /// The layout that fits the whole maze inside `size`, then zoomed and
+    /// moved by `viewport`. A masked maze is fitted to its mask, which may
+    /// sit off to one side of the origin cell.
+    init(size: CGSize, maze: Maze, padding: CGFloat, viewport: Viewport = Viewport()) {
+        // An unmasked region spans 3r + 2 units across and sqrt(3)(2r + 1)
+        // tall, centred on the origin cell.
+        let bounds = maze.mask?.bounds
+        let across = bounds.map { $0.max.x - $0.min.x } ?? 3 * Double(maze.radius) + 2
+        let tall = bounds.map { $0.max.y - $0.min.y } ?? HexGeometry.inradius * 2 * Double(2 * maze.radius + 1)
+        let middle = bounds.map { ($0.min + $0.max) * 0.5 } ?? .zero
         let fit = max(1, min((size.width - padding * 2) / across, (size.height - padding * 2) / tall))
         scale = fit * viewport.zoom
-        origin = CGPoint(x: size.width / 2 + viewport.offset.width, y: size.height / 2 + viewport.offset.height)
+        origin = CGPoint(
+            x: size.width / 2 + viewport.offset.width - middle.x * scale,
+            y: size.height / 2 + viewport.offset.height - middle.y * scale
+        )
+    }
+
+    /// Where a point of the maze's plane falls in the view.
+    func point(_ point: Point) -> CGPoint {
+        CGPoint(x: origin.x + point.x * scale, y: origin.y + point.y * scale)
+    }
+
+    /// The outline of a mask in the view. `offset` moves it, in tile units,
+    /// to show where it is being dragged to.
+    func path(for mask: Mask, offset: Point = .zero) -> Path {
+        var result = Path()
+        for shape in mask.shapes {
+            let corner = point(Point(
+                x: shape.center.x + offset.x - shape.width / 2, y: shape.center.y + offset.y - shape.height / 2
+            ))
+            let rect = Path(CGRect(x: corner.x, y: corner.y, width: shape.width * scale, height: shape.height * scale))
+            result = shape.subtracts ? result.subtracting(rect) : result.union(rect)
+        }
+        return result
     }
 
     func frame(for coord: HexCoord) -> TileFrame {
@@ -26,7 +52,7 @@ struct MazeLayout {
         )
     }
 
-    private func gridPoint(_ point: CGPoint) -> Point {
+    func gridPoint(_ point: CGPoint) -> Point {
         Point(x: (point.x - origin.x) / scale, y: (point.y - origin.y) / scale)
     }
 
@@ -76,12 +102,21 @@ enum MazeRenderer {
         let style = TileStyle(portsPerEdge: maze.portsPerEdge)
         let grid = TilePalette.outline.opacity(0.14)
 
+        // Tile faces and the grid stop at the mask. Pipes need no clipping:
+        // they are only ever placed inside it.
+        let bounds = maze.mask.map { layout.path(for: $0) }
+        var cellContext = context
+        if let bounds {
+            if showsCells { context.fill(bounds, with: .color(TilePalette.emptyCell)) }
+            cellContext.clip(to: bounds)
+        }
+
         for coord in maze.coords {
             let frame = layout.frame(for: coord)
             let hex = TileRenderer.hexPath(in: frame)
             if let placed = maze.cells[coord] {
                 if showsCells {
-                    context.fill(hex, with: .color(TilePalette.face))
+                    cellContext.fill(hex, with: .color(TilePalette.face))
                 }
                 var clipped = context
                 clipped.clip(to: hex)
@@ -100,11 +135,15 @@ enum MazeRenderer {
                     )
                 }
             } else if showsCells {
-                context.fill(hex, with: .color(TilePalette.emptyCell))
+                cellContext.fill(hex, with: .color(TilePalette.emptyCell))
             }
             if showsGrid && showsCells {
-                context.stroke(hex, with: .color(grid), lineWidth: 1)
+                cellContext.stroke(hex, with: .color(grid), lineWidth: 1)
             }
+        }
+
+        if let bounds {
+            context.stroke(bounds, with: .color(TilePalette.outline), style: StrokeStyle(lineWidth: 1.5, lineJoin: .miter))
         }
 
         // The entrance and exit: a short length of open pipe leading out of
@@ -138,7 +177,7 @@ struct MazeThumbnail: View {
 
     var body: some View {
         Canvas { context, size in
-            let layout = MazeLayout(size: size, radius: maze.radius, padding: 6)
+            let layout = MazeLayout(size: size, maze: maze, padding: 6)
             MazeRenderer.draw(maze, weave: maze.weave(), layout: layout, context: &context, showsGrid: false)
         }
         .aspectRatio(1, contentMode: .fit)
