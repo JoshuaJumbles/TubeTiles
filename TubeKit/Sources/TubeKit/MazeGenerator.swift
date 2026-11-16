@@ -103,12 +103,31 @@ public struct MazeGenerator: Sendable {
     /// Library options whose edges match what is already around `coord`.
     private func matching(_ maze: Maze, at coord: HexCoord) -> [PlacedTile] {
         let required = (0..<HexGeometry.edgeCount).map { maze.requirement(at: coord, edge: $0) }
+        let allowed = (0..<HexGeometry.edgeCount).map { maze.allowedValue(at: coord, edge: $0) }
         return (maze.goals.contains(coord) ? goalOptions : options).filter { option in
             for edge in 0..<HexGeometry.edgeCount {
                 if let value = required[edge], value != option.code.values[edge] { return false }
+                if option.code.values[edge] & ~allowed[edge] != 0 { return false }
             }
             return true
         }
+    }
+
+    /// The slots on a free edge of `coord` that a made-up tile may open a
+    /// pipe on: live in the library's rules and inside the maze's mask.
+    private func openSlots(_ maze: Maze, at coord: HexCoord, edge: Int) -> [Int] {
+        guard let synthesis else { return [] }
+        let count = maze.portsPerEdge
+        let allowed = maze.allowedValue(at: coord, edge: edge)
+        return synthesis.liveSlots(onEdge: edge, portsPerEdge: count).filter {
+            allowed & (1 << (count - 1 - $0)) != 0
+        }
+    }
+
+    /// The test a made-up pipe has to pass to stay inside the maze's mask,
+    /// or nil where the cell is clear of its edge.
+    private func insideMask(_ maze: Maze, at coord: HexCoord) -> ((Pipe) -> Bool)? {
+        maze.isOnBorder(coord) ? { maze.staysInside($0, at: coord) } : nil
     }
 
     /// The symmetry transforms, other than doing nothing, that map `coord`
@@ -123,12 +142,14 @@ public struct MazeGenerator: Sendable {
         for maze: Maze,
         at coord: HexCoord,
         symmetry: Symmetry,
+        growth: Double? = nil,
         using generator: inout some RandomNumberGenerator
     ) -> PlacedTile? {
         guard let synthesis else { return nil }
         if maze.goals.contains(coord) {
             return synthesizeGoal(for: maze, at: coord, using: &generator)
         }
+        let growth = growth ?? synthesis.growth
         let count = maze.portsPerEdge
         let fixing = stabilizer(of: coord, symmetry: symmetry)
 
@@ -155,9 +176,9 @@ public struct MazeGenerator: Sendable {
             }
         }
 
-        for edge in freeEdges where Double.random(in: 0..<1, using: &generator) < synthesis.growth {
+        for edge in freeEdges where Double.random(in: 0..<1, using: &generator) < growth {
             let slots = (count >= 4 && Bool.random(using: &generator)) ? 2 : 1
-            let live = synthesis.liveSlots(onEdge: edge, portsPerEdge: count)
+            let live = openSlots(maze, at: coord, edge: edge)
             for slot in live.shuffled(using: &generator).prefix(slots) {
                 open(Port(edge: edge, slot: slot))
             }
@@ -165,7 +186,7 @@ public struct MazeGenerator: Sendable {
         // A tile needs at least one pipe.
         var tries = 0
         while ports.count < 2, let edge = freeEdges.randomElement(using: &generator), tries < 8 {
-            if let slot = synthesis.liveSlots(onEdge: edge, portsPerEdge: count).randomElement(using: &generator) {
+            if let slot = openSlots(maze, at: coord, edge: edge).randomElement(using: &generator) {
                 open(Port(edge: edge, slot: slot))
             }
             tries += 1
@@ -175,10 +196,8 @@ public struct MazeGenerator: Sendable {
             if fixing.isEmpty, let extra = grown.randomElement(using: &generator) {
                 ports.remove(extra)
             } else if let spare = freeEdges.shuffled(using: &generator).lazy
-                .flatMap({ edge in (0..<count).map { Port(edge: edge, slot: $0) } })
-                .first(where: {
-                    !ports.contains($0) && !synthesis.deadPorts.contains($0) && images(of: $0).count == 1
-                }) {
+                .flatMap({ edge in self.openSlots(maze, at: coord, edge: edge).map { Port(edge: edge, slot: $0) } })
+                .first(where: { !ports.contains($0) && images(of: $0).count == 1 }) {
                 ports.insert(spare)
             } else {
                 return nil
@@ -188,7 +207,7 @@ public struct MazeGenerator: Sendable {
 
         guard let tile = TileSynthesizer.tile(
             portsPerEdge: count, ports: ports, invariantUnder: fixing,
-            kinds: synthesis.kinds, using: &generator
+            kinds: synthesis.kinds, where: insideMask(maze, at: coord), using: &generator
         ) else { return nil }
         return PlacedTile(tile, isGenerated: true)
     }
@@ -224,7 +243,7 @@ public struct MazeGenerator: Sendable {
             let choices: [Port] = freeEdges.shuffled(using: &generator).compactMap { edge in
                 // The live slot nearest mid-edge, either side at random when
                 // two are equally near.
-                let live = synthesis.liveSlots(onEdge: edge, portsPerEdge: count).shuffled(using: &generator)
+                let live = openSlots(maze, at: coord, edge: edge).shuffled(using: &generator)
                 return live.min { abs(Double($0) - centre) < abs(Double($1) - centre) }
                     .map { Port(edge: edge, slot: $0) }
             }
@@ -236,7 +255,7 @@ public struct MazeGenerator: Sendable {
             for port in ports.sorted().shuffled(using: &generator) {
                 if let tile = TileSynthesizer.tile(
                     portsPerEdge: count, ports: ports, deadEnd: (port, kind),
-                    kinds: synthesis.kinds, using: &generator
+                    kinds: synthesis.kinds, where: insideMask(maze, at: coord), using: &generator
                 ) {
                     return PlacedTile(tile, isGenerated: true)
                 }
@@ -256,12 +275,18 @@ public struct MazeGenerator: Sendable {
             return true
         }
         guard synthesis != nil else { return false }
-        if !stabilizer(of: coord, symmetry: symmetry).isEmpty {
-            // Symmetric tiles are hard to build, so actually try.
-            guard let made = synthesize(for: maze, at: coord, symmetry: symmetry, using: &generator) else {
-                return false
+        if !stabilizer(of: coord, symmetry: symmetry).isEmpty || maze.isOnBorder(coord) {
+            // Symmetric tiles are hard to build, and so are tiles at the
+            // edge of a mask, so actually try: first only closing off what
+            // points in, which is the easiest tile to make, then opening new
+            // pipes as well in case the count of ends was the trouble.
+            for growth in [0, 0, nil, nil] as [Double?] {
+                if let made = synthesize(for: maze, at: coord, symmetry: symmetry, growth: growth, using: &generator),
+                   maze.placing(made, at: coord, symmetry: symmetry) != nil {
+                    return true
+                }
             }
-            return maze.placing(made, at: coord, symmetry: symmetry) != nil
+            return false
         }
         // Otherwise a tile can almost always be built unless the cell is
         // boxed in with the wrong number of pipe ends: even for an ordinary
@@ -376,7 +401,8 @@ public struct MazeGenerator: Sendable {
         // side has no twin on the other. Once a maze has any, symmetry is
         // kept where a symmetric placement works and dropped, cell by cell,
         // where not.
-        if symmetry != .none, maze.endCount > 0,
+        // A mask is the same: few are symmetric about the centre of the grid.
+        if symmetry != .none, maze.endCount > 0 || maze.mask != nil,
            let next = placingRandomTile(in: maze, at: target, symmetry: .none, using: &generator) {
             maze = next
             return .placed(target)

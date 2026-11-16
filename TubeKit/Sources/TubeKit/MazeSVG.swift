@@ -4,7 +4,10 @@ import Foundation
 ///
 /// The drawing is in named groups, back to front:
 ///
-/// - `cells`: the outline of each tile.
+/// - `cells`: the outline of each tile, cut off at the bounds if there are
+///   any.
+/// - `bounds`: the outline of the maze's mask, if it has one. The page is
+///   then cropped to the mask.
 /// - `walls`: every path as one continuous line, at full pipe width.
 /// - `tubes`: the same lines again, narrower, forming the pipe interiors.
 /// - `rooms`: the circular rooms.
@@ -24,6 +27,8 @@ public enum MazeSVG {
         /// Fill for the page, or nil for a transparent background.
         public var background: String? = nil
         public var includesCells = true
+        /// Whether a masked maze gets its mask drawn as an outline.
+        public var includesBounds = true
         /// A tube colour per path, in the order of `Maze.paths`. Paths
         /// without an entry use `tube`.
         public var pathColors: [Int: String] = [:]
@@ -38,12 +43,20 @@ public enum MazeSVG {
     public static func render(_ maze: Maze, options: Options = Options()) -> String {
         let style = TileStyle(portsPerEdge: maze.portsPerEdge)
         let scale = options.cellSize
-        let width = (3 * Double(maze.radius) + 2) * scale + options.padding * 2
-        let height = HexGeometry.inradius * 2 * Double(2 * maze.radius + 1) * scale + options.padding * 2
+        // The page fits the mask where there is one, and the whole hexagon
+        // of cells where there is not.
+        let bounds = maze.mask?.bounds
+        let across = bounds.map { $0.max.x - $0.min.x } ?? 3 * Double(maze.radius) + 2
+        let tall = bounds.map { $0.max.y - $0.min.y } ?? HexGeometry.inradius * 2 * Double(2 * maze.radius + 1)
+        let middle = bounds.map { ($0.min + $0.max) * 0.5 } ?? .zero
+        let width = across * scale + options.padding * 2
+        let height = tall * scale + options.padding * 2
 
+        func place(_ point: Point) -> Point {
+            Point(x: width / 2 + (point.x - middle.x) * scale, y: height / 2 + (point.y - middle.y) * scale)
+        }
         func place(_ local: Point, in coord: HexCoord) -> Point {
-            let center = coord.center
-            return Point(x: width / 2 + (center.x + local.x) * scale, y: height / 2 + (center.y + local.y) * scale)
+            place(coord.center + local)
         }
         func number(_ value: Double) -> String {
             String(format: "%.2f", value)
@@ -100,12 +113,34 @@ public enum MazeSVG {
             lines.append(#"  <rect id="background" width="100%" height="100%" fill="\#(background)"/>"#)
         }
 
+        /// Each shape of the mask as a rectangle on the page.
+        func maskRects(subtracting: Bool) -> [String] {
+            (maze.mask?.shapes ?? []).filter { $0.subtracts == subtracting }.map { shape in
+                let corner = place(Point(x: shape.center.x - shape.width / 2, y: shape.center.y - shape.height / 2))
+                return #"<rect x="\#(number(corner.x))" y="\#(number(corner.y))" width="\#(number(shape.width * scale))" height="\#(number(shape.height * scale))"/>"#
+            }
+        }
+        if maze.mask != nil {
+            lines.append("  <defs>")
+            lines.append(#"    <clipPath id="bounds-clip">"#)
+            for rect in maskRects(subtracting: false) { lines.append("      " + rect) }
+            lines.append("    </clipPath>")
+            lines.append("  </defs>")
+        }
+
         if options.includesCells {
-            lines.append(#"  <g id="cells" fill="none" stroke="\#(options.ink)" stroke-opacity="0.15" stroke-width="1">"#)
+            let clip = maze.mask == nil ? "" : #" clip-path="url(#bounds-clip)""#
+            lines.append(#"  <g id="cells" fill="none" stroke="\#(options.ink)" stroke-opacity="0.15" stroke-width="1"\#(clip)>"#)
             for coord in maze.coords where maze.cells[coord] != nil {
                 let corners = (0..<HexGeometry.edgeCount).map { text(place(HexGeometry.corner($0), in: coord)) }
                 lines.append(#"    <polygon points="\#(corners.joined(separator: " "))"/>"#)
             }
+            lines.append("  </g>")
+        }
+
+        if maze.mask != nil, options.includesBounds {
+            lines.append(#"  <g id="bounds" fill="none" stroke="\#(options.ink)" stroke-width="\#(number(style.wallThickness * scale))">"#)
+            for rect in maskRects(subtracting: false) + maskRects(subtracting: true) { lines.append("    " + rect) }
             lines.append("  </g>")
         }
 

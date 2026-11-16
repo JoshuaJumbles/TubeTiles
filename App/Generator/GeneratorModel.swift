@@ -7,6 +7,11 @@ import TubeKit
 @Observable
 final class GeneratorModel {
     static let radiusRange = 1...6
+    /// How many columns of tiles wide the bounds may be.
+    static let boundsColumnRange = 3...12
+    /// Rings of cells kept ready under the bounds. Enough for the tallest
+    /// bounds at their widest.
+    private static let boundsRadiusLimit = 16
 
     private(set) var maze: Maze {
         didSet {
@@ -43,6 +48,8 @@ final class GeneratorModel {
             selected = nil
             message = nil
             if tool == .lock { showsPaths = true }
+            // Picking up the tool for the bounds puts some there to move.
+            if tool == .bounds, !hasBounds { setBounds(true) }
         }
     }
     /// Pipe ends on loops that merging must leave alone.
@@ -71,6 +78,8 @@ final class GeneratorModel {
         case lock
         /// Opens the editor to draw a tile for a cell.
         case design
+        /// Moves the bounds the maze is kept inside.
+        case bounds
     }
 
     var isRunning: Bool { activity != nil }
@@ -249,6 +258,124 @@ final class GeneratorModel {
 
     // MARK: Setup
 
+    // MARK: Bounds
+
+    /// The proportions the bounds can take, short side to long side.
+    enum BoundsAspect: String, CaseIterable, Identifiable {
+        case square, fourByFive, threeByFour, paper, twoByThree, nineBySixteen
+
+        var id: String { rawValue }
+
+        var ratio: Double {
+            switch self {
+            case .square: 1
+            case .fourByFive: 4.0 / 5
+            case .threeByFour: 3.0 / 4
+            case .paper: 1 / (2.0).squareRoot()
+            case .twoByThree: 2.0 / 3
+            case .nineBySixteen: 9.0 / 16
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .square: "Square"
+            case .fourByFive: "4 : 5"
+            case .threeByFour: "3 : 4"
+            case .paper: "A4, A3\u{2026}"
+            case .twoByThree: "2 : 3"
+            case .nineBySixteen: "9 : 16"
+            }
+        }
+    }
+
+    var hasBounds: Bool { maze.mask != nil }
+    private var boundsShape: Mask.Shape? { maze.mask?.shapes.first }
+
+    /// How many columns of tiles fit across the bounds.
+    var boundsColumns: Int {
+        guard let shape = boundsShape else { return 0 }
+        return Int(((shape.width - 0.5) / 1.5).rounded())
+    }
+
+    var boundsAspect: BoundsAspect {
+        guard let shape = boundsShape else { return .threeByFour }
+        let ratio = min(shape.width, shape.height) / max(shape.width, shape.height)
+        return BoundsAspect.allCases.min { abs($0.ratio - ratio) < abs($1.ratio - ratio) } ?? .threeByFour
+    }
+
+    var boundsAreUpright: Bool {
+        guard let shape = boundsShape else { return true }
+        return shape.height >= shape.width
+    }
+
+    /// Puts the maze inside a rectangle, or lets it have its hexagon back.
+    /// Tiles that keep to the new shape stay where they are.
+    func setBounds(_ on: Bool) {
+        guard on != hasBounds else { return }
+        if on {
+            // About as wide as the hexagon the maze has now.
+            let columns = min(max(2 * radius + 1, Self.boundsColumnRange.lowerBound), Self.boundsColumnRange.upperBound)
+            applyBounds(columns: columns, aspect: .threeByFour, upright: true, center: .zero)
+        } else {
+            reshape(mask: nil, radius: min(radius, Self.radiusRange.upperBound))
+            if tool == .bounds { tool = .place }
+        }
+    }
+
+    func setBoundsColumns(_ columns: Int) {
+        guard hasBounds, Self.boundsColumnRange.contains(columns), columns != boundsColumns else { return }
+        applyBounds(columns: columns, aspect: boundsAspect, upright: boundsAreUpright, center: boundsShape?.center ?? .zero)
+    }
+
+    func setBoundsAspect(_ aspect: BoundsAspect) {
+        guard hasBounds, aspect != boundsAspect else { return }
+        applyBounds(columns: boundsColumns, aspect: aspect, upright: boundsAreUpright, center: boundsShape?.center ?? .zero)
+    }
+
+    func setBoundsUpright(_ upright: Bool) {
+        guard hasBounds, upright != boundsAreUpright else { return }
+        applyBounds(columns: boundsColumns, aspect: boundsAspect, upright: upright, center: boundsShape?.center ?? .zero)
+    }
+
+    /// Slides the bounds over the grid, in tile units. The centre of the
+    /// grid, which symmetry turns about, is kept inside them.
+    func moveBounds(by offset: Point) {
+        guard let shape = boundsShape, offset != .zero else { return }
+        applyBounds(
+            columns: boundsColumns, aspect: boundsAspect, upright: boundsAreUpright,
+            center: shape.center + offset
+        )
+    }
+
+    private func applyBounds(columns: Int, aspect: BoundsAspect, upright: Bool, center: Point) {
+        // A row of n flat-top tiles is 1.5n + 0.5 across.
+        let width = 1.5 * Double(columns) + 0.5
+        let height = upright ? width / aspect.ratio : width * aspect.ratio
+        // Keep the centre of the grid inside, with a little to spare.
+        let reachX = max(width / 2 - 1, 0)
+        let reachY = max(height / 2 - 1, 0)
+        let clamped = Point(x: min(max(center.x, -reachX), reachX), y: min(max(center.y, -reachY), reachY))
+        let mask = Mask.rectangle(center: clamped, width: width, height: height)
+        guard mask != maze.mask else { return }
+        reshape(mask: mask, radius: Maze.radius(covering: mask, limit: Self.boundsRadiusLimit))
+    }
+
+    private func reshape(mask: Mask?, radius: Int) {
+        stop()
+        let before = maze.cells.count
+        maze = maze.reshaped(radius: radius, mask: mask)
+        selected = nil
+        viewport = Viewport()
+        pruneKept()
+        let lost = before - maze.cells.count
+        message = switch lost {
+        case 0: nil
+        case 1: "One tile no longer fitted and was taken out."
+        default: "\(lost) tiles no longer fitted and were taken out."
+        }
+    }
+
     func setRadius(_ radius: Int) {
         guard radius != maze.radius, Self.radiusRange.contains(radius) else { return }
         reset(portsPerEdge: portsPerEdge, radius: radius)
@@ -290,7 +417,7 @@ final class GeneratorModel {
         stop()
         let openings = maze.openings
         let sameShape = portsPerEdge == maze.portsPerEdge && radius == maze.radius
-        maze = Maze(portsPerEdge: portsPerEdge, radius: radius)
+        maze = Maze(portsPerEdge: portsPerEdge, radius: radius, mask: maze.mask)
         // Clearing the tiles keeps the entrance and exit; a different size
         // or port count has a different outline, so they are dropped.
         if sameShape {
@@ -574,6 +701,8 @@ final class GeneratorModel {
             if maze.cells[coord] != nil { toggleKept(at: coord, local: local) }
         case .design:
             design(at: coord)
+        case .bounds:
+            break
         }
     }
 

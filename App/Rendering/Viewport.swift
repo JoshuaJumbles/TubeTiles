@@ -30,6 +30,8 @@ struct Viewport: Equatable {
 struct ViewportGestures: ViewModifier {
     @Binding var viewport: Viewport
     var size: CGSize
+    /// Off while a drag means something else, such as moving the bounds.
+    var pans = true
 
     @State private var pinchStart: Viewport?
     @State private var dragStart: Viewport?
@@ -63,7 +65,7 @@ struct ViewportGestures: ViewModifier {
                 DragGesture(minimumDistance: 12)
                     .onChanged { value in
                         // A pinch moves the first finger too; that is not a pan.
-                        guard pinchStart == nil, viewport.zoom > 1 else { return }
+                        guard pans, pinchStart == nil, viewport.zoom > 1 else { return }
                         let base = dragStart ?? viewport
                         dragStart = base
                         var next = base
@@ -79,7 +81,7 @@ struct ViewportGestures: ViewModifier {
 }
 
 extension View {
-    func viewportGestures(_ viewport: Binding<Viewport>, in size: CGSize) -> some View {
-        modifier(ViewportGestures(viewport: viewport, size: size))
+    func viewportGestures(_ viewport: Binding<Viewport>, in size: CGSize, pans: Bool = true) -> some View {
+        modifier(ViewportGestures(viewport: viewport, size: size, pans: pans))
     }
 }

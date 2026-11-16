@@ -10,12 +10,16 @@ public struct TileBrief: Hashable, Sendable {
     public let required: [Int?]
     /// True for a goal cell, whose tile ends exactly one pipe in a room.
     public let needsDeadEnd: Bool
+    /// Ports that are off limits whatever the neighbours do, because they
+    /// fall outside the maze's mask.
+    public let closed: Set<Port>
 
-    public init(portsPerEdge: Int, required: [Int?], needsDeadEnd: Bool = false) {
+    public init(portsPerEdge: Int, required: [Int?], needsDeadEnd: Bool = false, closed: Set<Port> = []) {
         precondition(required.count == HexGeometry.edgeCount, "A brief has one requirement per edge")
         self.portsPerEdge = portsPerEdge
         self.required = required
         self.needsDeadEnd = needsDeadEnd
+        self.closed = closed
     }
 
     private func ports(wanted: Bool) -> Set<Port> {
@@ -32,7 +36,7 @@ public struct TileBrief: Hashable, Sendable {
     /// Ports that must carry a pipe.
     public var mustUse: Set<Port> { ports(wanted: true) }
     /// Ports that must be left empty.
-    public var mustAvoid: Set<Port> { ports(wanted: false) }
+    public var mustAvoid: Set<Port> { ports(wanted: false).union(closed).subtracting(mustUse) }
 
     /// Ports that still need a pipe.
     public func missing(in tile: Tile) -> Set<Port> {
@@ -66,7 +70,8 @@ extension Maze {
         return TileBrief(
             portsPerEdge: portsPerEdge,
             required: (0..<HexGeometry.edgeCount).map { requirement(at: coord, edge: $0) },
-            needsDeadEnd: goals.contains(coord)
+            needsDeadEnd: goals.contains(coord),
+            closed: closedPorts(at: coord)
         )
     }
 }
