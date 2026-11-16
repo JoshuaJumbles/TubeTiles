@@ -110,7 +110,7 @@ extension Tile {
     /// Every point where two of the tile's pipes cross. `firstIsOver` is set
     /// from stacking order: the pipe added later is on top.
     public func crossings(at coord: HexCoord = .origin) -> [Crossing] {
-        let style = TileStyle(portsPerEdge: portsPerEdge)
+        let style = style
         let lines = pipes.map { Polyline(PipeShape($0, style: style)) }
         var result: [Crossing] = []
         for i in pipes.indices {

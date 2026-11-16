@@ -186,7 +186,7 @@ enum TileRenderer {
     ) {
         var clipped = context
         clipped.clip(to: hexPath(in: frame))
-        let style = TileStyle(portsPerEdge: tile.portsPerEdge)
+        let style = tile.style
         for pipe in tile.pipes {
             draw(pipe, style: style, in: frame, context: &clipped, palette: palette)
         }

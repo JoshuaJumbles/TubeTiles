@@ -84,22 +84,28 @@ final class LibraryModel {
     /// Creates a library and makes it current.
     @discardableResult
     func create(
-        name: String, note: String, portsPerEdge: Int, allowedKinds: Set<PipeKind>, deadSlots: Set<Int> = []
+        name: String, note: String, portsPerEdge: Int, allowedKinds: Set<PipeKind>, deadSlots: Set<Int> = [],
+        gauge: PipeGauge = .standard
     ) throws -> TileLibrary {
         let library = TileLibrary(
-            name: name, note: note, portsPerEdge: portsPerEdge, allowedKinds: allowedKinds, deadSlots: deadSlots
+            name: name, note: note, portsPerEdge: portsPerEdge, allowedKinds: allowedKinds, deadSlots: deadSlots,
+            gauge: gauge
         )
         try commit(library)
         select(library.id)
         return library
     }
 
-    func update(id: UUID, name: String, note: String, allowedKinds: Set<PipeKind>, deadSlots: Set<Int>) throws {
+    func update(
+        id: UUID, name: String, note: String, allowedKinds: Set<PipeKind>, deadSlots: Set<Int>,
+        gauge: PipeGauge? = nil
+    ) throws {
         guard var library = library(id: id) else { return }
         library.name = name
         library.note = note
         library.allowedKinds = allowedKinds
         library.setDeadSlots(deadSlots)
+        if let gauge, gauge != library.gauge { library.setGauge(gauge) }
         try commit(library)
     }
 

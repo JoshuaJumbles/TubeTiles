@@ -41,7 +41,7 @@ public enum MazeSVG {
     public static let openingLength = 0.3
 
     public static func render(_ maze: Maze, options: Options = Options()) -> String {
-        let style = TileStyle(portsPerEdge: maze.portsPerEdge)
+        let style = maze.style
         let scale = options.cellSize
         // The page fits the mask where there is one, and the whole hexagon
         // of cells where there is not.

@@ -6,7 +6,8 @@ struct LibraryEditorView: View {
     /// The library being edited, or nil to create one.
     var existing: TileLibrary?
     var onSave: (
-        _ name: String, _ note: String, _ portsPerEdge: Int, _ allowedKinds: Set<PipeKind>, _ deadSlots: Set<Int>
+        _ name: String, _ note: String, _ portsPerEdge: Int, _ allowedKinds: Set<PipeKind>, _ deadSlots: Set<Int>,
+        _ gauge: PipeGauge
     ) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -16,6 +17,13 @@ struct LibraryEditorView: View {
     @State private var allowedKinds: Set<PipeKind>
     /// Slots switched off on every edge.
     @State private var deadSlots: Set<Int>
+    /// Pipe width, as a share of the space between ports.
+    @State private var pipeWidth: Double
+    /// Each wall, as a share of the pipe's width.
+    @State private var wall: Double
+    /// Tiles already in the library whose pipes would be too close at the
+    /// chosen thickness. Counted when a slider is let go, not as it moves.
+    @State private var crowdedTiles = 0
 
     static let portRange = 2...8
 
@@ -23,7 +31,7 @@ struct LibraryEditorView: View {
         existing: TileLibrary?,
         suggestedName: String = "",
         suggestedPorts: Int = 6,
-        onSave: @escaping (String, String, Int, Set<PipeKind>, Set<Int>) -> Void
+        onSave: @escaping (String, String, Int, Set<PipeKind>, Set<Int>, PipeGauge) -> Void
     ) {
         self.existing = existing
         self.onSave = onSave
@@ -32,6 +40,31 @@ struct LibraryEditorView: View {
         _portsPerEdge = State(initialValue: existing?.portsPerEdge ?? suggestedPorts)
         _allowedKinds = State(initialValue: existing?.allowedKinds ?? Set(PipeKind.allCases))
         _deadSlots = State(initialValue: existing?.deadSlots ?? [])
+        let gauge = existing?.gauge ?? .standard
+        _pipeWidth = State(initialValue: gauge.width)
+        _wall = State(initialValue: gauge.wall)
+    }
+
+    private var gauge: PipeGauge { PipeGauge(width: pipeWidth, wall: wall) }
+
+    /// A few pipes at the chosen thickness, to judge the look by.
+    private var sampleTile: Tile {
+        let last = portsPerEdge - 1
+        var tile = Tile(portsPerEdge: portsPerEdge, gauge: gauge)
+        let middle = last / 2
+        // One straight down with a curve crossing it above and below, so
+        // both the look and the crossings can be judged.
+        let pipes = [
+            Pipe(.bezier, a: Port(edge: 0, slot: middle), b: Port(edge: 3, slot: last - middle)),
+            Pipe(.bezier, a: Port(edge: 5, slot: middle), b: Port(edge: 1, slot: last - middle)),
+            Pipe(.bezier, a: Port(edge: 4, slot: middle), b: Port(edge: 2, slot: last - middle)),
+        ]
+        for pipe in pipes { try? tile.add(pipe) }
+        return tile
+    }
+
+    private func countCrowdedTiles() {
+        crowdedTiles = existing?.crowdedTileCount(at: gauge) ?? 0
     }
 
     /// Dead slots that still exist at the current port count.
@@ -129,6 +162,46 @@ struct LibraryEditorView: View {
                 }
 
                 Section {
+                    HStack(alignment: .center, spacing: 16) {
+                        TileView(tile: sampleTile)
+                            .frame(width: 104)
+                            // Redrawn for every change of thickness or ports.
+                            .id("\(portsPerEdge)-\(pipeWidth)-\(wall)")
+                        VStack(alignment: .leading, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text("Width").font(.subheadline)
+                                Slider(value: $pipeWidth, in: PipeGauge.widthRange) { editing in
+                                    if !editing { countCrowdedTiles() }
+                                }
+                                .accessibilityLabel("Pipe width")
+                            }
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text("Walls").font(.subheadline)
+                                Slider(value: $wall, in: PipeGauge.wallRange)
+                                    .accessibilityLabel("Wall thickness")
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    if gauge != .standard {
+                        Button("Back to the usual thickness") {
+                            pipeWidth = PipeGauge.standard.width
+                            wall = PipeGauge.standard.wall
+                            countCrowdedTiles()
+                        }
+                    }
+                } header: {
+                    Text("Pipe thickness")
+                } footer: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Every tile in the library is drawn at this thickness, and so are mazes grown from it. Wider pipes leave less room: fewer fit side by side, and some turns that clear each other when thin no longer do.")
+                        if crowdedTiles > 0 {
+                            Text("^[\(crowdedTiles) tile](inflect: true) already here have pipes too close together at this width. They stay in the library and are still used.")
+                        }
+                    }
+                }
+
+                Section {
                     // One edge, standing for all six.
                     HStack(spacing: 0) {
                         ForEach(0..<portsPerEdge, id: \.self) { slot in
@@ -178,7 +251,7 @@ struct LibraryEditorView: View {
                     Button(existing == nil ? "Create" : "Save") {
                         onSave(
                             trimmedName, note.trimmingCharacters(in: .whitespacesAndNewlines),
-                            portsPerEdge, allowedKinds, validDeadSlots
+                            portsPerEdge, allowedKinds, validDeadSlots, gauge
                         )
                         dismiss()
                     }

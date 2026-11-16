@@ -26,11 +26,13 @@ public enum TileSynthesizer {
     ///   - invariantUnder: Transforms the finished tile must look the same
     ///     under. Needed for cells that a maze symmetry maps onto themselves.
     ///     `ports` must already be closed under them.
+    ///   - gauge: How thick the pipes are, which decides what has room.
     ///   - kinds: Pipe kinds to draw from; repeats make a kind more likely.
     ///   - allows: A further test every pipe has to pass, such as staying
     ///     inside a maze's mask.
     public static func tile(
         portsPerEdge: Int,
+        gauge: PipeGauge = .standard,
         ports: some Collection<Port>,
         invariantUnder symmetries: [TileTransform] = [],
         deadEnd: (port: Port, kind: PipeKind)? = nil,
@@ -43,7 +45,7 @@ public enum TileSynthesizer {
               wanted.allSatisfy({ $0.isValid(portsPerEdge: portsPerEdge) })
         else { return nil }
 
-        var tile = Tile(portsPerEdge: portsPerEdge)
+        var tile = Tile(portsPerEdge: portsPerEdge, gauge: gauge)
         var coverage = CoverageMap(tile: tile)
         if let deadEnd {
             // The room goes in first, so every other pipe has to find a way

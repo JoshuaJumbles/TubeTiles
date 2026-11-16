@@ -68,6 +68,9 @@ public struct PlacedTile: Hashable, Sendable, Codable {
 public struct Maze: Hashable, Sendable, Codable {
     public let portsPerEdge: Int
     public let radius: Int
+    /// How thick the maze's pipes are drawn. Every tile in it is drawn at
+    /// this thickness, whatever it was made at.
+    public let gauge: PipeGauge
     /// The space the maze may take up, or nil for the whole hexagon.
     public let mask: Mask?
     /// How the mask falls on the grid. Follows from the three above.
@@ -84,12 +87,17 @@ public struct Maze: Hashable, Sendable, Codable {
     /// none, so a maze can only be finished when this is even.
     public var endCount: Int { openings.count + goals.count }
 
-    public init(portsPerEdge: Int, radius: Int, mask: Mask? = nil) {
+    public init(portsPerEdge: Int, radius: Int, mask: Mask? = nil, gauge: PipeGauge = .standard) {
         self.portsPerEdge = portsPerEdge
         self.radius = radius
         self.mask = mask
-        region = mask.map { MaskedRegion(mask: $0, portsPerEdge: portsPerEdge, radius: radius) }
+        self.gauge = gauge
+        let style = TileStyle(portsPerEdge: portsPerEdge, gauge: gauge)
+        region = mask.map { MaskedRegion(mask: $0, style: style, radius: radius) }
     }
+
+    /// The sizes the maze's pipes are drawn and checked at.
+    public var style: TileStyle { TileStyle(portsPerEdge: portsPerEdge, gauge: gauge) }
 
     /// Enough rings to hold everything `mask` covers, up to `limit`.
     public static func radius(covering mask: Mask, limit: Int) -> Int {
@@ -112,11 +120,25 @@ public struct Maze: Hashable, Sendable, Codable {
     /// cell is still in play and it keeps to the new shape; the rest are
     /// dropped, as are openings when the new shape has a mask.
     public func reshaped(radius: Int, mask: Mask?) -> Maze {
-        var next = Maze(portsPerEdge: portsPerEdge, radius: radius, mask: mask)
+        rebuilt(radius: radius, mask: mask, gauge: gauge)
+    }
+
+    /// The same maze with thicker or thinner pipes. Thicker pipes need more
+    /// room, so tiles at the edge of a mask may no longer keep inside it;
+    /// those are dropped.
+    public func regauged(_ gauge: PipeGauge) -> Maze {
+        rebuilt(radius: radius, mask: mask, gauge: gauge)
+    }
+
+    private func rebuilt(radius: Int, mask: Mask?, gauge: PipeGauge) -> Maze {
+        var next = Maze(portsPerEdge: portsPerEdge, radius: radius, mask: mask, gauge: gauge)
         next.goals = goals.filter(next.contains)
         next.openings = openings.filter(next.isOnOutline)
-        for (coord, placed) in cells where next.contains(coord) && next.staysInside(placed, at: coord) {
-            next.cells[coord] = placed
+        for (coord, old) in cells where next.contains(coord) {
+            let placed = old.source.gauge == gauge
+                ? old
+                : PlacedTile(old.source.gauged(gauge), transform: old.transform, isGenerated: old.isGenerated)
+            if next.staysInside(placed, at: coord) { next.cells[coord] = placed }
         }
         for coord in next.cells.keys.sorted() {
             if let placed = next.cells[coord], !next.fits(placed.code, at: coord) {
@@ -130,7 +152,7 @@ public struct Maze: Hashable, Sendable, Codable {
     // that could not be part of this maze (a cell outside the region, a tile
     // with the wrong port count, an opening off the outline) is dropped.
     private enum CodingKeys: String, CodingKey {
-        case portsPerEdge, radius, mask, cells, openings, goals
+        case portsPerEdge, radius, mask, gauge, cells, openings, goals
     }
 
     private struct StoredCell: Codable {
@@ -143,7 +165,8 @@ public struct Maze: Hashable, Sendable, Codable {
         self.init(
             portsPerEdge: try container.decode(Int.self, forKey: .portsPerEdge),
             radius: try container.decode(Int.self, forKey: .radius),
-            mask: try container.decodeIfPresent(Mask.self, forKey: .mask)
+            mask: try container.decodeIfPresent(Mask.self, forKey: .mask),
+            gauge: try container.decodeIfPresent(PipeGauge.self, forKey: .gauge) ?? .standard
         )
         for cell in try container.decode([StoredCell].self, forKey: .cells)
         where contains(cell.coord) && cell.tile.source.portsPerEdge == portsPerEdge
@@ -160,6 +183,7 @@ public struct Maze: Hashable, Sendable, Codable {
         try container.encode(portsPerEdge, forKey: .portsPerEdge)
         try container.encode(radius, forKey: .radius)
         try container.encodeIfPresent(mask, forKey: .mask)
+        if gauge != .standard { try container.encode(gauge, forKey: .gauge) }
         let stored = cells.keys.sorted().compactMap { coord in
             cells[coord].map { StoredCell(coord: coord, tile: $0) }
         }
@@ -202,7 +226,7 @@ public struct Maze: Hashable, Sendable, Codable {
     /// inside the mask.
     public func staysInside(_ pipe: Pipe, at coord: HexCoord) -> Bool {
         guard let mask, isOnBorder(coord) else { return true }
-        return MaskedRegion.staysInside(pipe, at: coord, mask: mask, portsPerEdge: portsPerEdge)
+        return MaskedRegion.staysInside(pipe, at: coord, mask: mask, style: style)
     }
 
     /// Whether every pipe of `tile`, placed at `coord`, stays inside the
