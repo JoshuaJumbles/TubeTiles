@@ -1,17 +1,49 @@
 import Foundation
 
+/// How thick pipes are, set once for a whole library.
+///
+/// This is more than a look. Thicker pipes take up more room, so some turns
+/// that clear each other when thin collide when thick, and fewer pipes fit
+/// near the edge of a maze's bounds.
+public struct PipeGauge: Hashable, Sendable, Codable {
+    /// A pipe's full width, as a share of the space between two ports.
+    public var width: Double
+    /// Each wall, as a share of the pipe's width.
+    public var wall: Double
+
+    public static let widthRange = 0.3...0.95
+    public static let wallRange = 0.06...0.4
+    public static let standard = PipeGauge(width: 0.7, wall: 0.2)
+
+    /// Values outside the ranges are brought to the nearest end.
+    public init(width: Double, wall: Double) {
+        self.width = min(max(width, Self.widthRange.lowerBound), Self.widthRange.upperBound)
+        self.wall = min(max(wall, Self.wallRange.lowerBound), Self.wallRange.upperBound)
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            width: try container.decode(Double.self, forKey: .width),
+            wall: try container.decode(Double.self, forKey: .wall)
+        )
+    }
+}
+
 /// Sizes used to draw and validate pipes, in units of the hex circumradius.
 public struct TileStyle: Hashable, Sendable {
     public var portsPerEdge: Int
+    public var gauge: PipeGauge
 
-    public init(portsPerEdge: Int) {
+    public init(portsPerEdge: Int, gauge: PipeGauge = .standard) {
         self.portsPerEdge = portsPerEdge
+        self.gauge = gauge
     }
 
     /// Full width of a pipe including its walls.
-    public var pipeWidth: Double { 0.7 / Double(portsPerEdge) }
+    public var pipeWidth: Double { gauge.width / Double(portsPerEdge) }
 
-    public var wallThickness: Double { pipeWidth * 0.2 }
+    public var wallThickness: Double { pipeWidth * gauge.wall }
 
     /// Width used by the overlap rule. Slightly narrower than the drawn pipe,
     /// so pipes that only graze each other are allowed.

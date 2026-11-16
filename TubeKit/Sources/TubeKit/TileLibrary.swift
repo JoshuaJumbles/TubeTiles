@@ -14,6 +14,8 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     public let portsPerEdge: Int
     /// The pipe kinds this library's tiles are meant to use.
     public var allowedKinds: Set<PipeKind>
+    /// How thick the pipes of every tile in the library are.
+    public private(set) var gauge: PipeGauge
     /// Ports this library's tiles are meant to leave unused.
     ///
     /// Stored port by port so that a pattern could differ from edge to edge.
@@ -28,20 +30,22 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
         note: String = "",
         portsPerEdge: Int,
         allowedKinds: Set<PipeKind> = Set(PipeKind.allCases),
-        deadSlots: Set<Int> = []
+        deadSlots: Set<Int> = [],
+        gauge: PipeGauge = .standard
     ) {
         self.id = id
         self.name = name
         self.note = note
         self.portsPerEdge = portsPerEdge
         self.allowedKinds = allowedKinds
+        self.gauge = gauge
         self.deadPorts = []
         self.tiles = []
         setDeadSlots(deadSlots)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, note, portsPerEdge, allowedKinds, deadPorts, tiles
+        case id, name, note, portsPerEdge, allowedKinds, gauge, deadPorts, tiles
     }
 
     /// Libraries saved before they had an identity, a note or rules load
@@ -57,7 +61,10 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
             ?? Set(PipeKind.allCases)
         deadPorts = Set((try container.decodeIfPresent([Port].self, forKey: .deadPorts) ?? [])
             .filter { $0.isValid(portsPerEdge: ports) })
+        let gauge = try container.decodeIfPresent(PipeGauge.self, forKey: .gauge) ?? .standard
+        self.gauge = gauge
         tiles = try container.decode([Tile].self, forKey: .tiles).filter { $0.portsPerEdge == ports }
+            .map { $0.gauged(gauge) }
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -68,6 +75,7 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
         try container.encode(portsPerEdge, forKey: .portsPerEdge)
         // In a fixed order, so saving the same library twice gives the same file.
         try container.encode(PipeKind.allCases.filter(allowedKinds.contains), forKey: .allowedKinds)
+        if gauge != .standard { try container.encode(gauge, forKey: .gauge) }
         try container.encode(deadPorts.sorted(), forKey: .deadPorts)
         try container.encode(tiles, forKey: .tiles)
     }
@@ -87,6 +95,21 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     /// Whether every pipe of `tile` is of an allowed kind.
     public func allows(_ tile: Tile) -> Bool {
         tile.pipes.allSatisfy { allowedKinds.contains($0.kind) }
+    }
+
+    // MARK: Pipe thickness
+
+    /// Changes how thick the pipes of every tile are. No tile is removed:
+    /// ones whose pipes no longer clear each other stay and are still used.
+    public mutating func setGauge(_ gauge: PipeGauge) {
+        self.gauge = gauge
+        tiles = tiles.map { $0.gauged(gauge) }
+    }
+
+    /// How many tiles have pipes that would not clear each other at the
+    /// given thickness.
+    public func crowdedTileCount(at gauge: PipeGauge) -> Int {
+        tiles.filter { CoverageMap(tile: $0.gauged(gauge)).hasViolation }.count
     }
 
     // MARK: Dead ports
@@ -147,6 +170,7 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     /// Adds a tile, or replaces the stored tile with the same `id`.
     public mutating func save(_ tile: Tile) {
         precondition(tile.portsPerEdge == portsPerEdge, "Tile does not match the library's port count")
+        let tile = tile.gauged(gauge)
         if let index = tiles.firstIndex(where: { $0.id == tile.id }) {
             tiles[index] = tile
         } else {
@@ -165,7 +189,9 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     /// A separate library with the same rules and its own copies of the
     /// tiles, for branching a style.
     public func duplicated(named name: String) -> TileLibrary {
-        var copy = TileLibrary(name: name, note: note, portsPerEdge: portsPerEdge, allowedKinds: allowedKinds)
+        var copy = TileLibrary(
+            name: name, note: note, portsPerEdge: portsPerEdge, allowedKinds: allowedKinds, gauge: gauge
+        )
         copy.deadPorts = deadPorts
         copy.tiles = tiles.map { tile in
             var twin = tile

@@ -119,14 +119,17 @@ struct LibraryView: View {
                     existing: nil,
                     suggestedName: library.unusedName("New library"),
                     suggestedPorts: current.portsPerEdge
-                ) { name, note, ports, kinds, dead in
+                ) { name, note, ports, kinds, dead, gauge in
                     _ = try? library.create(
-                        name: name, note: note, portsPerEdge: ports, allowedKinds: kinds, deadSlots: dead
+                        name: name, note: note, portsPerEdge: ports, allowedKinds: kinds, deadSlots: dead,
+                        gauge: gauge
                     )
                 }
             case let .existing(target):
-                LibraryEditorView(existing: target) { name, note, _, kinds, dead in
-                    try? library.update(id: target.id, name: name, note: note, allowedKinds: kinds, deadSlots: dead)
+                LibraryEditorView(existing: target) { name, note, _, kinds, dead, gauge in
+                    try? library.update(
+                        id: target.id, name: name, note: note, allowedKinds: kinds, deadSlots: dead, gauge: gauge
+                    )
                 }
             }
         }

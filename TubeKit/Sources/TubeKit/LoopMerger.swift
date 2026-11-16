@@ -94,6 +94,7 @@ public struct LoopMerger: Sendable {
                 for (a1, a2, b1, b2) in rewirings {
                     let rest = Tile(
                         portsPerEdge: maze.portsPerEdge,
+                        gauge: maze.gauge,
                         uncheckedPipes: pipes.filter { $0 != first && $0 != second }
                     )
                     // Keep the original pipe kinds if they still fit and
@@ -124,7 +125,7 @@ public struct LoopMerger: Sendable {
             guard ends.count <= 1, ends.isEmpty || fixing.isEmpty else { continue }
             for _ in 0..<(fixing.isEmpty ? 3 : 12) {
                 guard let tile = TileSynthesizer.tile(
-                    portsPerEdge: maze.portsPerEdge, ports: placed.oriented.occupiedPorts,
+                    portsPerEdge: maze.portsPerEdge, gauge: maze.gauge, ports: placed.oriented.occupiedPorts,
                     invariantUnder: fixing,
                     deadEnd: ends.first.map { ($0.a, $0.kind) },
                     kinds: allowedKinds,

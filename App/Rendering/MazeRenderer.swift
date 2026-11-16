@@ -99,7 +99,7 @@ enum MazeRenderer {
         showsCells: Bool = true,
         palette: (PortRef) -> TilePalette = { _ in .standard }
     ) {
-        let style = TileStyle(portsPerEdge: maze.portsPerEdge)
+        let style = maze.style
         let grid = TilePalette.outline.opacity(0.14)
 
         // Tile faces and the grid stop at the mask. Pipes need no clipping:

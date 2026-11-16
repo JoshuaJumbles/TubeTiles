@@ -44,7 +44,7 @@ public struct CoverageMap: Sendable {
     }
 
     public init(tile: Tile) {
-        self.init(style: TileStyle(portsPerEdge: tile.portsPerEdge))
+        self.init(style: tile.style)
         for pipe in tile.pipes {
             add(pipe)
         }

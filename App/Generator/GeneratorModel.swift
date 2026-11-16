@@ -105,7 +105,7 @@ final class GeneratorModel {
             kept = working.kept
             documentID = archive.maze(id: working.documentID)?.id
         } else {
-            start = Maze(portsPerEdge: library.current.portsPerEdge, radius: 3)
+            start = Maze(portsPerEdge: library.current.portsPerEdge, radius: 3, gauge: library.current.gauge)
         }
         maze = start
         paths = start.paths
@@ -397,6 +397,20 @@ final class GeneratorModel {
             // as word of a tile just saved and placed, stays up.
             if warnsOfPortCount { message = nil }
             warnsOfPortCount = false
+            if current.gauge != maze.gauge {
+                // The library's pipes got thicker or thinner, and the maze
+                // made from it follows.
+                stop()
+                let before = maze.cells.count
+                maze = maze.regauged(current.gauge)
+                pruneKept()
+                let lost = before - maze.cells.count
+                if lost > 0 {
+                    message = lost == 1
+                        ? "One tile no longer fitted inside the bounds and was taken out."
+                        : "\(lost) tiles no longer fitted inside the bounds and were taken out."
+                }
+            }
             return
         }
         if maze.cells.isEmpty {
@@ -417,7 +431,7 @@ final class GeneratorModel {
         stop()
         let openings = maze.openings
         let sameShape = portsPerEdge == maze.portsPerEdge && radius == maze.radius
-        maze = Maze(portsPerEdge: portsPerEdge, radius: radius, mask: maze.mask)
+        maze = Maze(portsPerEdge: portsPerEdge, radius: radius, mask: maze.mask, gauge: library.current.gauge)
         // Clearing the tiles keeps the entrance and exit; a different size
         // or port count has a different outline, so they are dropped.
         if sameShape {
@@ -646,7 +660,7 @@ final class GeneratorModel {
     /// `local` is measured from the tile's centre, in tile units.
     private func toggleKept(at coord: HexCoord, local: Point) {
         guard let placed = maze.cells[coord] else { return }
-        let style = TileStyle(portsPerEdge: portsPerEdge)
+        let style = maze.style
         let nearest = placed.oriented.pipes.min {
             PipeShape($0, style: style).distance(to: local) < PipeShape($1, style: style).distance(to: local)
         }

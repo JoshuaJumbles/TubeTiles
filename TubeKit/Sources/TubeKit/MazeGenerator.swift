@@ -206,7 +206,7 @@ public struct MazeGenerator: Sendable {
         guard !ports.isEmpty else { return nil }
 
         guard let tile = TileSynthesizer.tile(
-            portsPerEdge: count, ports: ports, invariantUnder: fixing,
+            portsPerEdge: count, gauge: maze.gauge, ports: ports, invariantUnder: fixing,
             kinds: synthesis.kinds, where: insideMask(maze, at: coord), using: &generator
         ) else { return nil }
         return PlacedTile(tile, isGenerated: true)
@@ -254,7 +254,7 @@ public struct MazeGenerator: Sendable {
         for kind in synthesis.deadEndKinds {
             for port in ports.sorted().shuffled(using: &generator) {
                 if let tile = TileSynthesizer.tile(
-                    portsPerEdge: count, ports: ports, deadEnd: (port, kind),
+                    portsPerEdge: count, gauge: maze.gauge, ports: ports, deadEnd: (port, kind),
                     kinds: synthesis.kinds, where: insideMask(maze, at: coord), using: &generator
                 ) {
                     return PlacedTile(tile, isGenerated: true)

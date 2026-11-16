@@ -105,8 +105,9 @@ struct MaskedRegion: Hashable, Sendable {
     /// this many of its edges.
     static let fewestEdges = 3
 
-    init(mask: Mask, portsPerEdge count: Int, radius: Int) {
-        let inset = TileStyle(portsPerEdge: count).pipeWidth / 2
+    init(mask: Mask, style: TileStyle, radius: Int) {
+        let count = style.portsPerEdge
+        let inset = style.pipeWidth / 2
         let all = (-radius...radius).flatMap { q in (-radius...radius).map { HexCoord(q: q, r: $0) } }
             .filter { $0.ring <= radius }
         let full = (1 << count) - 1
@@ -144,14 +145,14 @@ struct MaskedRegion: Hashable, Sendable {
         // Slivers of cells at the edge often have ports that are inside but
         // that nothing can be drawn from. Close those, on both sides, and
         // look again: closing one can leave another with no partner.
-        let blank = Tile(portsPerEdge: count)
+        let blank = Tile(portsPerEdge: count, gauge: style.gauge)
         let coverage = CoverageMap(tile: blank)
         func canBeDrawn(from port: Port, in coord: HexCoord, among live: [Port]) -> Bool {
             for partner in live where partner != port {
                 for kind in [PipeKind.bezier, .corner] {
                     let pipe = Pipe(kind, a: port, b: partner)
                     if PlacementRules.error(adding: pipe, to: blank, coverage: coverage) == nil,
-                       Self.staysInside(pipe, at: coord, mask: mask, portsPerEdge: count) {
+                       Self.staysInside(pipe, at: coord, mask: mask, style: style) {
                         return true
                     }
                 }
@@ -193,8 +194,7 @@ struct MaskedRegion: Hashable, Sendable {
 
     /// Whether `pipe`, drawn in the cell at `coord`, keeps its whole width
     /// inside the mask.
-    static func staysInside(_ pipe: Pipe, at coord: HexCoord, mask: Mask, portsPerEdge: Int) -> Bool {
-        let style = TileStyle(portsPerEdge: portsPerEdge)
+    static func staysInside(_ pipe: Pipe, at coord: HexCoord, mask: Mask, style: TileStyle) -> Bool {
         let inset = style.pipeWidth / 2
         let origin = coord.center
         let shape = PipeShape(pipe, style: style)

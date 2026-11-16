@@ -45,7 +45,7 @@ final class EditorModel {
 
     init(library: LibraryModel) {
         self.library = library
-        let tile = Tile(portsPerEdge: library.current.portsPerEdge)
+        let tile = Tile(portsPerEdge: library.current.portsPerEdge, gauge: library.current.gauge)
         self.tile = tile
         coverage = CoverageMap(tile: tile)
         kind = PipeKind.allCases.first(where: library.current.allowedKinds.contains) ?? .bezier
@@ -107,15 +107,22 @@ final class EditorModel {
             // A tile cannot change port count, so start a fresh one.
             undoStack.removeAll()
             redoStack.removeAll()
-            apply(Tile(portsPerEdge: current.portsPerEdge))
+            apply(Tile(portsPerEdge: current.portsPerEdge, gauge: current.gauge))
             gap = nil
+        }
+        if tile.gauge != current.gauge {
+            // Thicker or thinner pipes. What is drawn stays, even if pipes
+            // that used to clear each other no longer do.
+            apply(tile.gauged(current.gauge))
+            undoStack = undoStack.map { $0.gauged(current.gauge) }
+            redoStack = redoStack.map { $0.gauged(current.gauge) }
         }
         if !current.allowedKinds.contains(kind), let first = allowedKinds.first {
             choose(first)
         }
     }
 
-    var style: TileStyle { TileStyle(portsPerEdge: tile.portsPerEdge) }
+    var style: TileStyle { tile.style }
     /// Whether the canvas should mark which free ports are usable: the far
     /// ends for a pipe being drawn, or every spot a dead end would fit.
     var highlightsTargets: Bool { !isErasing && (selectedPort != nil || kind.isDeadEnd) }
@@ -263,7 +270,7 @@ final class EditorModel {
     }
 
     func newTile() {
-        commit(Tile(portsPerEdge: tile.portsPerEdge))
+        commit(Tile(portsPerEdge: tile.portsPerEdge, gauge: tile.gauge))
     }
 
     /// Puts a library tile on the canvas. A copy gets a new identity, so
@@ -279,7 +286,7 @@ final class EditorModel {
     /// Starts a fresh tile for a cell of the maze and marks what it needs.
     func design(for gap: GapBrief) {
         guard gap.brief.portsPerEdge == library.current.portsPerEdge else { return }
-        if !tile.pipes.isEmpty { commit(Tile(portsPerEdge: tile.portsPerEdge)) }
+        if !tile.pipes.isEmpty { commit(Tile(portsPerEdge: tile.portsPerEdge, gauge: tile.gauge)) }
         self.gap = gap
         message = nil
     }
