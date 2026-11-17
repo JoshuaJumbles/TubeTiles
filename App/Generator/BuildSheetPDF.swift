@@ -39,9 +39,9 @@ enum BuildSheetPDF {
             CGPoint(x: center.x + point.x * scale, y: center.y + point.y * scale)
         }
 
-        var hex: CGPath {
+        func outline(of shape: TileShape) -> CGPath {
             let path = CGMutablePath()
-            path.addLines(between: (0..<HexGeometry.edgeCount).map { point(HexGeometry.corner($0)) })
+            path.addLines(between: shape.corners.map(point))
             path.closeSubpath()
             return path
         }
@@ -61,7 +61,7 @@ enum BuildSheetPDF {
             pages.append(("Tiles", { drawRecipe(slice, in: $0) }))
         }
 
-        let grid = stencilGrid(options: options)
+        let grid = stencilGrid(options: options, shape: sheet.entries.first?.tile.shape ?? .hexagon)
         let perStencilPage = grid.columns * grid.rows
         for start in stride(from: 0, to: sheet.entries.count, by: perStencilPage) {
             let slice = Array(sheet.entries[start..<min(start + perStencilPage, sheet.entries.count)])
@@ -95,15 +95,16 @@ enum BuildSheetPDF {
         let legendHeight: CGFloat = 78
         let area = CGRect(x: body.minX, y: body.minY, width: body.width, height: body.height - legendHeight)
 
-        // The maze's extent, as in the app: its mask, or its hexagon.
+        // The maze's extent, as in the app: its mask, or its whole region.
         let bounds = maze.mask?.bounds
-        let across = bounds.map { $0.max.x - $0.min.x } ?? 3 * Double(maze.radius) + 2
-        let tall = bounds.map { $0.max.y - $0.min.y } ?? HexGeometry.inradius * 2 * Double(2 * maze.radius + 1)
+        let whole = maze.tiling.extent(radius: maze.radius)
+        let across = bounds.map { $0.max.x - $0.min.x } ?? whole.width
+        let tall = bounds.map { $0.max.y - $0.min.y } ?? whole.height
         let middle = bounds.map { ($0.min + $0.max) * 0.5 } ?? .zero
         let scale = min(area.width / across, area.height / tall)
         let origin = CGPoint(x: area.midX - middle.x * scale, y: area.midY - middle.y * scale)
         func frame(_ coord: HexCoord) -> Frame {
-            let center = coord.center
+            let center = maze.center(of: coord)
             return Frame(center: CGPoint(x: origin.x + center.x * scale, y: origin.y + center.y * scale), scale: scale)
         }
 
@@ -122,14 +123,15 @@ enum BuildSheetPDF {
         if !frameRects.isEmpty { context.clip(to: frameRects) }
         for coord in maze.coords {
             let cell = frame(coord)
+            let outline = cell.outline(of: maze.tiling.shape(of: coord))
             context.saveGState()
-            context.addPath(cell.hex)
+            context.addPath(outline)
             context.clip()
             if let placed = maze.cells[coord] {
                 drawPipes(placed.oriented.pipes, style: style, frame: cell, in: context, ink: faint, crossings: weave.crossings(at: coord))
             }
             context.restoreGState()
-            context.addPath(cell.hex)
+            context.addPath(outline)
             context.setStrokeColor(UIColor(white: 0.8, alpha: 1).cgColor)
             context.setLineWidth(0.5)
             context.strokePath()
@@ -147,7 +149,10 @@ enum BuildSheetPDF {
         for (coord, placement) in sheet.placements.sorted(by: { $0.key < $1.key }) {
             let cell = frame(coord)
             let top = placement.transform.apply(to: Port(edge: 0, slot: 0), portsPerEdge: maze.portsPerEdge).edge
-            drawTopMark(edge: top, hollow: placement.transform.mirrored, portsPerEdge: maze.portsPerEdge, frame: cell, in: context)
+            drawTopMark(
+                edge: top, hollow: placement.transform.mirrored, shape: maze.tiling.shape(of: coord),
+                portsPerEdge: maze.portsPerEdge, frame: cell, in: context
+            )
             draw(
                 sheet.entries[placement.entry].label,
                 at: CGPoint(x: cell.center.x, y: cell.center.y - letterSize * 0.6),
@@ -156,7 +161,8 @@ enum BuildSheetPDF {
         }
 
         // What the map means, and how big the finished piece is.
-        let unit = options.tileInches / (3.0).squareRoot()
+        // A tile's size is given flat to flat, which is its height.
+        let unit = options.tileInches / (sheet.entries.first?.tile.shape ?? .hexagon).size.height
         var lines = [
             "\(sheet.tileCount) tiles, \(sheet.entries.count) different. Finished size about \(inches(across * unit)) by \(inches(tall * unit)) with tiles \(inches(options.tileInches)) flat to flat.",
             "Each cell shows its tile's letter. The triangle is on the edge that the tile's stencil shows at the top.",
@@ -170,11 +176,13 @@ enum BuildSheetPDF {
         }
     }
 
-    private static func drawTopMark(edge: Int, hollow: Bool, portsPerEdge: Int, frame: Frame, in context: CGContext) {
-        let first = HexGeometry.position(of: Port(edge: edge, slot: 0), portsPerEdge: portsPerEdge)
-        let last = HexGeometry.position(of: Port(edge: edge, slot: portsPerEdge - 1), portsPerEdge: portsPerEdge)
+    private static func drawTopMark(
+        edge: Int, hollow: Bool, shape: TileShape, portsPerEdge: Int, frame: Frame, in context: CGContext
+    ) {
+        let first = shape.position(of: Port(edge: edge, slot: 0), portsPerEdge: portsPerEdge)
+        let last = shape.position(of: Port(edge: edge, slot: portsPerEdge - 1), portsPerEdge: portsPerEdge)
         let middle = (first + last) * 0.5
-        let inward = HexGeometry.inwardDirection(edge: edge)
+        let inward = shape.inwardDirection(edge: edge)
         let along = Point(x: -inward.y, y: inward.x)
         let size = 0.13
         let path = CGMutablePath()
@@ -206,11 +214,12 @@ enum BuildSheetPDF {
                 x: body.minX + (column + 0.5) * cellWidth, y: body.minY + row * cellHeight + cellHeight * 0.42
             )
             // As large as the cell allows, leaving room for the label.
-            let scale = min(cellWidth * 0.44, (cellHeight - 26) * 0.5)
+            let outline = entry.tile.shape.size
+            let scale = min(cellWidth * 0.88 / outline.width, (cellHeight - 26) * 0.866 / outline.height)
             drawStencil(entry.tile, frame: Frame(center: center, scale: scale), outline: 0.6, in: context)
             draw(
                 "\(entry.label)  ×\(entry.count)",
-                at: CGPoint(x: center.x, y: center.y + scale * HexGeometry.inradius + 4),
+                at: CGPoint(x: center.x, y: center.y + scale * outline.height / 2 + 4),
                 size: 10, weight: .semibold, align: .center
             )
         }
@@ -228,12 +237,15 @@ enum BuildSheetPDF {
     }
 
     /// How many real-size tiles fit on a page, in plain rows and columns.
-    private static func stencilGrid(options: Options) -> StencilGrid {
-        // Points per tile unit: the unit is the corner radius, and flat to
-        // flat is root three of them.
-        let scale = options.tileInches * 72 / (3.0).squareRoot()
+    private static func stencilGrid(options: Options, shape: TileShape) -> StencilGrid {
+        // Points per tile unit. A tile's size is given flat to flat, which
+        // is its height.
+        let outline = shape.size
+        let scale = options.tileInches * 72 / outline.height
         // Room above each tile for its top mark and below it for its label.
-        let cell = CGSize(width: scale * 2 + 12, height: CGFloat(options.tileInches * 72) + topMarkRoom + 24)
+        let cell = CGSize(
+            width: scale * outline.width + 12, height: CGFloat(options.tileInches * 72) + topMarkRoom + 24
+        )
         return StencilGrid(
             columns: max(1, Int((body.width + 12) / cell.width)),
             rows: max(1, Int(body.height / cell.height)),
@@ -247,9 +259,10 @@ enum BuildSheetPDF {
         for (index, entry) in entries.enumerated() {
             let column = CGFloat(index % grid.columns)
             let row = CGFloat(index / grid.columns)
-            let half = grid.scale * HexGeometry.inradius
+            let outline = entry.tile.shape.size
+            let half = grid.scale * outline.height / 2
             let center = CGPoint(
-                x: left + column * grid.cell.width + grid.scale,
+                x: left + column * grid.cell.width + grid.scale * outline.width / 2,
                 y: body.minY + row * grid.cell.height + topMarkRoom + half
             )
             let frame = Frame(center: center, scale: grid.scale)
@@ -274,12 +287,13 @@ enum BuildSheetPDF {
     /// One tile with its crossings left open: every pipe's walls first, then
     /// every pipe's inside, so where two cross neither is on top.
     private static func drawStencil(_ tile: Tile, frame: Frame, outline: CGFloat, in context: CGContext) {
+        let border = frame.outline(of: tile.shape)
         context.saveGState()
-        context.addPath(frame.hex)
+        context.addPath(border)
         context.clip()
         drawPipes(tile.pipes, style: tile.style, frame: frame, in: context, ink: ink, crossings: nil)
         context.restoreGState()
-        context.addPath(frame.hex)
+        context.addPath(border)
         context.setStrokeColor(ink.cgColor)
         context.setLineWidth(outline)
         context.strokePath()

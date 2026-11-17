@@ -105,7 +105,10 @@ final class GeneratorModel {
             kept = working.kept
             documentID = archive.maze(id: working.documentID)?.id
         } else {
-            start = Maze(portsPerEdge: library.current.portsPerEdge, radius: 3, gauge: library.current.gauge)
+            start = Maze(
+                portsPerEdge: library.current.portsPerEdge, radius: 3, gauge: library.current.gauge,
+                tiling: Tiling(shape: library.current.shape)
+            )
         }
         maze = start
         paths = start.paths
@@ -200,10 +203,16 @@ final class GeneratorModel {
     var portsPerEdge: Int { maze.portsPerEdge }
     var radius: Int { maze.radius }
     var openCells: [HexCoord] { maze.openCells }
+    /// Whether a library's tiles could go in this maze: the same shape of
+    /// tile and the same number of ports.
+    private func suits(_ library: TileLibrary) -> Bool {
+        library.portsPerEdge == portsPerEdge && Tiling(shape: library.shape) == maze.tiling
+    }
+
     /// The library the generator draws from: the current one, provided its
-    /// tiles have the same port count as the maze.
+    /// tiles suit the maze.
     var activeLibrary: TileLibrary? {
-        library.current.portsPerEdge == portsPerEdge ? library.current : nil
+        suits(library.current) ? library.current : nil
     }
 
     var currentLibrary: TileLibrary { library.current }
@@ -295,7 +304,7 @@ final class GeneratorModel {
     /// How many columns of tiles fit across the bounds.
     var boundsColumns: Int {
         guard let shape = boundsShape else { return 0 }
-        return Int(((shape.width - 0.5) / 1.5).rounded())
+        return maze.tiling.columns(inWidth: shape.width)
     }
 
     var boundsAspect: BoundsAspect {
@@ -349,8 +358,7 @@ final class GeneratorModel {
     }
 
     private func applyBounds(columns: Int, aspect: BoundsAspect, upright: Bool, center: Point) {
-        // A row of n flat-top tiles is 1.5n + 0.5 across.
-        let width = 1.5 * Double(columns) + 0.5
+        let width = maze.tiling.width(ofColumns: columns)
         let height = upright ? width / aspect.ratio : width * aspect.ratio
         // Keep the centre of the grid inside, with a little to spare.
         let reachX = max(width / 2 - 1, 0)
@@ -358,7 +366,7 @@ final class GeneratorModel {
         let clamped = Point(x: min(max(center.x, -reachX), reachX), y: min(max(center.y, -reachY), reachY))
         let mask = Mask.rectangle(center: clamped, width: width, height: height)
         guard mask != maze.mask else { return }
-        reshape(mask: mask, radius: Maze.radius(covering: mask, limit: Self.boundsRadiusLimit))
+        reshape(mask: mask, radius: Maze.radius(covering: mask, limit: Self.boundsRadiusLimit, tiling: maze.tiling))
     }
 
     private func reshape(mask: Mask?, radius: Int) {
@@ -392,7 +400,7 @@ final class GeneratorModel {
     /// Called when the current library changes, here or on another screen.
     func libraryChanged() {
         let current = library.current
-        guard current.portsPerEdge != portsPerEdge else {
+        guard !suits(current) else {
             // Only the warning below is out of date now. Anything else, such
             // as word of a tile just saved and placed, stays up.
             if warnsOfPortCount { message = nil }
@@ -431,7 +439,10 @@ final class GeneratorModel {
         stop()
         let openings = maze.openings
         let sameShape = portsPerEdge == maze.portsPerEdge && radius == maze.radius
-        maze = Maze(portsPerEdge: portsPerEdge, radius: radius, mask: maze.mask, gauge: library.current.gauge)
+        maze = Maze(
+            portsPerEdge: portsPerEdge, radius: radius, mask: maze.mask, gauge: library.current.gauge,
+            tiling: Tiling(shape: library.current.shape)
+        )
         // Clearing the tiles keeps the entrance and exit; a different size
         // or port count has a different outline, so they are dropped.
         if sameShape {
@@ -476,9 +487,9 @@ final class GeneratorModel {
     /// opposite it.
     func addOpposedOpenings() {
         guard let entrance = maze.outlinePorts.filter(allowsOpening).randomElement(using: &random) else { return }
-        let halfTurn = TileTransform(turns: 3)
+        guard let halfTurn = maze.tiling.transforms(for: .half).last else { return }
         let exit = PortRef(
-            coord: entrance.coord.transformed(by: halfTurn),
+            coord: maze.tiling.transformed(entrance.coord, by: halfTurn),
             port: halfTurn.apply(to: entrance.port, portsPerEdge: portsPerEdge)
         )
         applyOpenings([entrance, exit])

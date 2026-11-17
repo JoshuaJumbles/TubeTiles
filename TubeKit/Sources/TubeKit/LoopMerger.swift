@@ -95,6 +95,7 @@ public struct LoopMerger: Sendable {
                     let rest = Tile(
                         portsPerEdge: maze.portsPerEdge,
                         gauge: maze.gauge,
+                        shape: placed.oriented.shape,
                         uncheckedPipes: pipes.filter { $0 != first && $0 != second }
                     )
                     // Keep the original pipe kinds if they still fit and
@@ -120,12 +121,13 @@ public struct LoopMerger: Sendable {
             // the symmetry maps onto itself needs a tile that is symmetric
             // too, which swapping two pipes cannot give, so this is the only
             // route for those and gets more attempts.
-            let fixing = symmetry.transforms.filter { $0 != .identity && coord.transformed(by: $0) == coord }
+            let fixing = maze.tiling.stabilizer(of: coord, symmetry: symmetry)
             let ends = placed.oriented.deadEnds
             guard ends.count <= 1, ends.isEmpty || fixing.isEmpty else { continue }
             for _ in 0..<(fixing.isEmpty ? 3 : 12) {
                 guard let tile = TileSynthesizer.tile(
-                    portsPerEdge: maze.portsPerEdge, gauge: maze.gauge, ports: placed.oriented.occupiedPorts,
+                    portsPerEdge: maze.portsPerEdge, gauge: maze.gauge, shape: placed.oriented.shape,
+                    ports: placed.oriented.occupiedPorts,
                     invariantUnder: fixing,
                     deadEnd: ends.first.map { ($0.a, $0.kind) },
                     kinds: allowedKinds,

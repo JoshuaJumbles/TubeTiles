@@ -105,27 +105,30 @@ struct MaskedRegion: Hashable, Sendable {
     /// this many of its edges.
     static let fewestEdges = 3
 
-    init(mask: Mask, style: TileStyle, radius: Int) {
-        let count = style.portsPerEdge
-        let inset = style.pipeWidth / 2
-        let all = (-radius...radius).flatMap { q in (-radius...radius).map { HexCoord(q: q, r: $0) } }
-            .filter { $0.ring <= radius }
+    init(mask: Mask, portsPerEdge count: Int, gauge: PipeGauge, tiling: Tiling, radius: Int) {
+        func style(_ coord: HexCoord) -> TileStyle {
+            TileStyle(portsPerEdge: count, gauge: gauge, shape: tiling.shape(of: coord))
+        }
+        let inset = style(.origin).pipeWidth / 2
+        let all = tiling.cells(radius: radius)
         let full = (1 << count) - 1
 
         /// A port sits on an edge two cells share. It is judged once, from
         /// one side, so both cells always get the same answer.
         func isLive(_ coord: HexCoord, _ port: Port) -> Bool {
-            let neighbour = coord.neighbour(across: port.edge)
-            guard neighbour.ring <= radius else { return false }
-            if port.edge >= 3 {
-                return isLive(neighbour, Port(edge: port.edge - 3, slot: count - 1 - port.slot))
+            let other = tiling.touching(port, of: coord, portsPerEdge: count)
+            guard tiling.ring(of: other.coord) <= radius else { return false }
+            // The side with the lower edge number does the judging.
+            if (other.port.edge, other.coord) < (port.edge, coord) {
+                return isLive(other.coord, other.port)
             }
-            return mask.contains(coord.center + HexGeometry.position(of: port, portsPerEdge: count), inset: inset)
+            let position = tiling.shape(of: coord).position(of: port, portsPerEdge: count)
+            return mask.contains(tiling.center(of: coord) + position, inset: inset)
         }
 
         var bits: [HexCoord: [Int]] = [:]
         for coord in all {
-            bits[coord] = (0..<HexGeometry.edgeCount).map { edge in
+            bits[coord] = (0..<tiling.shape(of: coord).edgeCount).map { edge in
                 (0..<count).reduce(0) { value, slot in
                     isLive(coord, Port(edge: edge, slot: slot)) ? value | (1 << (count - 1 - slot)) : value
                 }
@@ -134,8 +137,8 @@ struct MaskedRegion: Hashable, Sendable {
 
         /// Cells the mask's edge passes through or near.
         func touchesEdge(_ coord: HexCoord) -> Bool {
-            bits[coord]?.contains { $0 != full } ?? false || (0..<HexGeometry.edgeCount).contains { corner in
-                !mask.contains(coord.center + HexGeometry.corner(corner), inset: inset)
+            bits[coord]?.contains { $0 != full } ?? false || tiling.shape(of: coord).corners.contains { corner in
+                !mask.contains(tiling.center(of: coord) + corner, inset: inset)
             }
         }
         let edgeCells = all.filter(touchesEdge)
@@ -145,14 +148,14 @@ struct MaskedRegion: Hashable, Sendable {
         // Slivers of cells at the edge often have ports that are inside but
         // that nothing can be drawn from. Close those, on both sides, and
         // look again: closing one can leave another with no partner.
-        let blank = Tile(portsPerEdge: count, gauge: style.gauge, shape: style.shape)
-        let coverage = CoverageMap(tile: blank)
         func canBeDrawn(from port: Port, in coord: HexCoord, among live: [Port]) -> Bool {
+            let blank = Tile(portsPerEdge: count, gauge: gauge, shape: tiling.shape(of: coord))
+            let coverage = CoverageMap(tile: blank)
             for partner in live where partner != port {
                 for kind in [PipeKind.bezier, .corner] {
                     let pipe = Pipe(kind, a: port, b: partner)
                     if PlacementRules.error(adding: pipe, to: blank, coverage: coverage) == nil,
-                       Self.staysInside(pipe, at: coord, mask: mask, style: style) {
+                       Self.staysInside(pipe, from: tiling.center(of: coord), mask: mask, style: style(coord)) {
                         return true
                     }
                 }
@@ -164,7 +167,7 @@ struct MaskedRegion: Hashable, Sendable {
             changed = false
             for coord in edgeCells {
                 guard let edges = bits[coord] else { continue }
-                let live = (0..<HexGeometry.edgeCount).flatMap { edge in
+                let live = edges.indices.flatMap { edge in
                     (0..<count).filter { edges[edge] & (1 << (count - 1 - $0)) != 0 }.map { Port(edge: edge, slot: $0) }
                 }
                 // A cell reached through only one or two of its edges is a
@@ -176,8 +179,8 @@ struct MaskedRegion: Hashable, Sendable {
                 for port in live where isSliver || !canBeDrawn(from: port, in: coord, among: live) {
                     let bit = 1 << (count - 1 - port.slot)
                     bits[coord]?[port.edge] &= ~bit
-                    let across = (port.edge + 3) % HexGeometry.edgeCount
-                    bits[coord.neighbour(across: port.edge)]?[across] &= ~(1 << port.slot)
+                    let other = tiling.touching(port, of: coord, portsPerEdge: count)
+                    bits[other.coord]?[other.port.edge] &= ~(1 << (count - 1 - other.port.slot))
                     changed = true
                 }
             }
@@ -192,11 +195,10 @@ struct MaskedRegion: Hashable, Sendable {
         }
     }
 
-    /// Whether `pipe`, drawn in the cell at `coord`, keeps its whole width
-    /// inside the mask.
-    static func staysInside(_ pipe: Pipe, at coord: HexCoord, mask: Mask, style: TileStyle) -> Bool {
+    /// Whether `pipe`, drawn in a cell centred on `origin`, keeps its whole
+    /// width inside the mask.
+    static func staysInside(_ pipe: Pipe, from origin: Point, mask: Mask, style: TileStyle) -> Bool {
         let inset = style.pipeWidth / 2
-        let origin = coord.center
         let shape = PipeShape(pipe, style: style)
         for segment in shape.segments {
             let points: [Point]

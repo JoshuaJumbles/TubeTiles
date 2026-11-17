@@ -72,7 +72,7 @@ public struct MazeGenerator: Sendable {
             // Tiles with several dead ends would add path ends nobody asked
             // for, so they are left out.
             guard ends <= 1 else { continue }
-            for transform in TileTransform.allCases {
+            for transform in tile.shape.transforms {
                 let placed = PlacedTile(tile, transform: transform)
                 guard seen.insert(Set(placed.oriented.pipes)).inserted else { continue }
                 if ends == 1 {
@@ -102,10 +102,12 @@ public struct MazeGenerator: Sendable {
 
     /// Library options whose edges match what is already around `coord`.
     private func matching(_ maze: Maze, at coord: HexCoord) -> [PlacedTile] {
-        let required = (0..<HexGeometry.edgeCount).map { maze.requirement(at: coord, edge: $0) }
-        let allowed = (0..<HexGeometry.edgeCount).map { maze.allowedValue(at: coord, edge: $0) }
+        let edges = maze.edges(at: coord)
+        let required = edges.map { maze.requirement(at: coord, edge: $0) }
+        let allowed = edges.map { maze.allowedValue(at: coord, edge: $0) }
         return (maze.goals.contains(coord) ? goalOptions : options).filter { option in
-            for edge in 0..<HexGeometry.edgeCount {
+            guard option.code.values.count == edges.count else { return false }
+            for edge in edges {
                 if let value = required[edge], value != option.code.values[edge] { return false }
                 if option.code.values[edge] & ~allowed[edge] != 0 { return false }
             }
@@ -132,8 +134,8 @@ public struct MazeGenerator: Sendable {
 
     /// The symmetry transforms, other than doing nothing, that map `coord`
     /// onto itself. A tile there must look the same under each of them.
-    private func stabilizer(of coord: HexCoord, symmetry: Symmetry) -> [TileTransform] {
-        symmetry.transforms.filter { $0 != .identity && coord.transformed(by: $0) == coord }
+    private func stabilizer(_ maze: Maze, of coord: HexCoord, symmetry: Symmetry) -> [TileTransform] {
+        maze.tiling.stabilizer(of: coord, symmetry: symmetry)
     }
 
     /// Builds a tile for `coord` that meets every neighbour, optionally
@@ -151,11 +153,11 @@ public struct MazeGenerator: Sendable {
         }
         let growth = growth ?? synthesis.growth
         let count = maze.portsPerEdge
-        let fixing = stabilizer(of: coord, symmetry: symmetry)
+        let fixing = stabilizer(maze, of: coord, symmetry: symmetry)
 
         var ports: Set<Port> = []
         var freeEdges: [Int] = []
-        for edge in 0..<HexGeometry.edgeCount {
+        for edge in maze.edges(at: coord) {
             if let value = maze.requirement(at: coord, edge: edge) {
                 for slot in 0..<count where value & (1 << (count - 1 - slot)) != 0 {
                     ports.insert(Port(edge: edge, slot: slot))
@@ -206,7 +208,8 @@ public struct MazeGenerator: Sendable {
         guard !ports.isEmpty else { return nil }
 
         guard let tile = TileSynthesizer.tile(
-            portsPerEdge: count, gauge: maze.gauge, ports: ports, invariantUnder: fixing,
+            portsPerEdge: count, gauge: maze.gauge, shape: maze.tiling.shape(of: coord), ports: ports,
+            invariantUnder: fixing,
             kinds: synthesis.kinds, where: insideMask(maze, at: coord), using: &generator
         ) else { return nil }
         return PlacedTile(tile, isGenerated: true)
@@ -226,7 +229,7 @@ public struct MazeGenerator: Sendable {
         let count = maze.portsPerEdge
         var ports: Set<Port> = []
         var freeEdges: [Int] = []
-        for edge in 0..<HexGeometry.edgeCount {
+        for edge in maze.edges(at: coord) {
             if let value = maze.requirement(at: coord, edge: edge) {
                 for slot in 0..<count where value & (1 << (count - 1 - slot)) != 0 {
                     ports.insert(Port(edge: edge, slot: slot))
@@ -254,7 +257,8 @@ public struct MazeGenerator: Sendable {
         for kind in synthesis.deadEndKinds {
             for port in ports.sorted().shuffled(using: &generator) {
                 if let tile = TileSynthesizer.tile(
-                    portsPerEdge: count, gauge: maze.gauge, ports: ports, deadEnd: (port, kind),
+                    portsPerEdge: count, gauge: maze.gauge, shape: maze.tiling.shape(of: coord), ports: ports,
+                    deadEnd: (port, kind),
                     kinds: synthesis.kinds, where: insideMask(maze, at: coord), using: &generator
                 ) {
                     return PlacedTile(tile, isGenerated: true)
@@ -275,7 +279,7 @@ public struct MazeGenerator: Sendable {
             return true
         }
         guard synthesis != nil else { return false }
-        if !stabilizer(of: coord, symmetry: symmetry).isEmpty || maze.isOnBorder(coord) {
+        if !stabilizer(maze, of: coord, symmetry: symmetry).isEmpty || maze.isOnBorder(coord) {
             // Symmetric tiles are hard to build, and so are tiles at the
             // edge of a mask, so actually try: first only closing off what
             // points in, which is the easiest tile to make, then opening new
@@ -293,7 +297,7 @@ public struct MazeGenerator: Sendable {
         // tile, odd for a goal, whose dead end uses one port on its own.
         var fixedPorts = 0
         var hasFreeEdge = false
-        for edge in 0..<HexGeometry.edgeCount {
+        for edge in maze.edges(at: coord) {
             if let value = maze.requirement(at: coord, edge: edge) {
                 fixedPorts += value.nonzeroBitCount
             } else {
@@ -312,7 +316,7 @@ public struct MazeGenerator: Sendable {
     ) -> Bool {
         let open = Set(next.openCells)
         let touched = Set(next.images(of: coord, symmetry: symmetry).flatMap { target in
-            (0..<HexGeometry.edgeCount).map { target.neighbour(across: $0) }
+            next.edges(at: target).map { next.tiling.neighbour(of: target, across: $0).cell }
         }).intersection(open).sorted()
         for cell in touched where !canFill(next, at: cell, symmetry: symmetry, using: &generator) {
             return true
@@ -367,7 +371,8 @@ public struct MazeGenerator: Sendable {
         if pendingGoal == nil, maze.cells.isEmpty {
             // Start at the centre if a tile can sit there under this
             // symmetry, otherwise as close to it as possible.
-            let starts = maze.coords.sorted { $0.ring != $1.ring ? $0.ring < $1.ring : $0 < $1 }
+            let ring = maze.tiling.ring
+            let starts = maze.coords.sorted { ring($0) != ring($1) ? ring($0) < ring($1) : $0 < $1 }
             for start in starts.prefix(7) {
                 if let next = placingRandomTile(in: maze, at: start, symmetry: symmetry, using: &generator) {
                     maze = next
@@ -387,7 +392,7 @@ public struct MazeGenerator: Sendable {
             // fewest choices, so it is the one most likely to fail if left
             // for later.
             func fixedEdges(_ coord: HexCoord) -> Int {
-                (0..<HexGeometry.edgeCount).filter { maze.requirement(at: coord, edge: $0) != nil }.count
+                maze.edges(at: coord).filter { maze.requirement(at: coord, edge: $0) != nil }.count
             }
             let most = open.map(fixedEdges).max() ?? 0
             target = open.filter { fixedEdges($0) == most }.randomElement(using: &generator)!
@@ -411,8 +416,8 @@ public struct MazeGenerator: Sendable {
         // Nothing fits. Clear the tiles around the cell so the area can
         // regrow differently; taking out just one tends to rebuild the same
         // impossible corner.
-        var neighbours = (0..<HexGeometry.edgeCount)
-            .map { target.neighbour(across: $0) }
+        var neighbours = maze.edges(at: target)
+            .map { maze.tiling.neighbour(of: target, across: $0).cell }
             .filter { maze.cells[$0] != nil }
         // A goal placed early has the biggest room it will ever get, so
         // leave it standing unless it is the only thing in the way.

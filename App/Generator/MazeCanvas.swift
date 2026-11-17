@@ -56,7 +56,7 @@ struct MazeCanvas: View {
 
                 // Cells a pipe points into but that have no tile yet.
                 for coord in openCells where !maze.goals.contains(coord) {
-                    let hex = TileRenderer.hexPath(in: layout.frame(for: coord))
+                    let hex = layout.outline(of: coord)
                     context.fill(hex, with: .color(Self.open.opacity(0.16)))
                     context.stroke(hex, with: .color(Self.open), style: StrokeStyle(lineWidth: 2, dash: [5, 4]))
                 }
@@ -86,7 +86,7 @@ struct MazeCanvas: View {
                 }
 
                 for coord in selectedImages {
-                    let hex = TileRenderer.hexPath(in: layout.frame(for: coord))
+                    let hex = layout.outline(of: coord)
                     context.stroke(
                         hex, with: .color(.accentColor.opacity(coord == selected ? 1 : 0.5)),
                         style: StrokeStyle(lineWidth: coord == selected ? 4 : 2.5, lineJoin: .round)

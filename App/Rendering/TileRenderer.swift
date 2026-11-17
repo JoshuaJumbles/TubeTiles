@@ -93,11 +93,6 @@ enum TileRenderer {
         return path
     }
 
-    /// The outline of a cell of the hex grid that mazes are laid out on.
-    static func hexPath(in frame: TileFrame) -> Path {
-        outline(of: .hexagon, in: frame)
-    }
-
     static func centerLine(of shape: PipeShape, in frame: TileFrame) -> Path {
         var path = Path()
         for (index, segment) in shape.segments.enumerated() {
