@@ -22,16 +22,18 @@ public enum PlacementError: Error, Equatable, Sendable {
 /// of every pipe on the tile and is checked with a `CoverageMap`.
 public enum PlacementRules {
     /// Checks a pipe's own shape, ignoring what else is on the tile.
-    public static func shapeError(for pipe: Pipe, portsPerEdge: Int) -> PlacementError? {
-        for port in [pipe.a, pipe.b] where !port.isValid(portsPerEdge: portsPerEdge) {
+    public static func shapeError(
+        for pipe: Pipe, portsPerEdge: Int, shape: TileShape = .hexagon
+    ) -> PlacementError? {
+        for port in [pipe.a, pipe.b] where !shape.isValid(port, portsPerEdge: portsPerEdge) {
             return .portOutOfRange(port)
         }
         if pipe.isDeadEnd { return pipe.a == pipe.b ? nil : .deadEndNeedsOnePort }
         if pipe.a == pipe.b { return .samePort }
 
         let sameEdge = pipe.a.edge == pipe.b.edge
-        let offsetAcross = pipe.a.isOnOppositeEdge(from: pipe.b)
-            && !pipe.a.faces(pipe.b, portsPerEdge: portsPerEdge)
+        let offsetAcross = shape.areOpposite(pipe.a.edge, pipe.b.edge)
+            && !shape.faces(pipe.a, pipe.b, portsPerEdge: portsPerEdge)
 
         switch pipe.kind {
         case .bezier:
@@ -53,7 +55,7 @@ public enum PlacementRules {
     public static func error(
         adding pipe: Pipe, to tile: Tile, coverage: CoverageMap? = nil
     ) -> PlacementError? {
-        if let error = shapeError(for: pipe, portsPerEdge: tile.portsPerEdge) { return error }
+        if let error = shapeError(for: pipe, portsPerEdge: tile.portsPerEdge, shape: tile.shape) { return error }
         for port in pipe.ports where tile.pipe(at: port) != nil {
             return .portOccupied(port)
         }

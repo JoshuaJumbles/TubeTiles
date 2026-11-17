@@ -29,18 +29,31 @@ public struct CoverageMap: Sendable {
 
     public init(style: TileStyle) {
         self.style = style
-        let size = Self.resolution
-        let root3 = (3.0).squareRoot()
+        counts = Self.blank[style.shape] ?? Self.makeBlank(for: style.shape)
+    }
+
+    /// An empty map for each shape, worked out once: everything outside the
+    /// tile counts as taken once already.
+    private static let blank: [TileShape: [UInt8]] = Dictionary(
+        uniqueKeysWithValues: TileShape.allCases.map { ($0, makeBlank(for: $0)) }
+    )
+
+    private static func makeBlank(for shape: TileShape) -> [UInt8] {
+        let size = resolution
+        // Each edge as a point on it and the direction into the tile.
+        let edges = (0..<shape.edgeCount).map { (shape.corner($0), shape.inwardDirection(edge: $0)) }
         var counts = [UInt8](repeating: 0, count: size * size)
         for row in 0..<size {
-            let y = abs(Self.coordinate(row))
+            let y = coordinate(row)
             for column in 0..<size {
-                let x = abs(Self.coordinate(column))
-                let inside = y <= root3 / 2 && root3 * x + y <= root3
+                let x = coordinate(column)
+                let inside = edges.allSatisfy { corner, inward in
+                    (x - corner.x) * inward.x + (y - corner.y) * inward.y >= -1e-9
+                }
                 if !inside { counts[row * size + column] = 1 }
             }
         }
-        self.counts = counts
+        return counts
     }
 
     public init(tile: Tile) {

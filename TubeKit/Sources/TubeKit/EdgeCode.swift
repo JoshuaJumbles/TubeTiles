@@ -6,17 +6,19 @@
 /// to each other; it says nothing about how ports are joined inside the tile.
 public struct EdgeCode: Hashable, Sendable, Codable, CustomStringConvertible {
     public let portsPerEdge: Int
-    /// Six values, one per edge, clockwise from the top.
+    /// One value per edge, clockwise from the top: six for a hexagon.
     public let values: [Int]
 
     public init(portsPerEdge: Int, values: [Int]) {
-        precondition(values.count == HexGeometry.edgeCount, "An edge code has one value per edge")
+        precondition(values.count >= 3, "An edge code has one value per edge")
         self.portsPerEdge = portsPerEdge
         self.values = values
     }
 
-    public init(portsPerEdge: Int, occupied ports: some Sequence<Port>) {
-        var values = Array(repeating: 0, count: HexGeometry.edgeCount)
+    public init(
+        portsPerEdge: Int, edgeCount: Int = HexGeometry.edgeCount, occupied ports: some Sequence<Port>
+    ) {
+        var values = Array(repeating: 0, count: edgeCount)
         for port in ports {
             values[port.edge] |= 1 << (portsPerEdge - 1 - port.slot)
         }
@@ -24,9 +26,9 @@ public struct EdgeCode: Hashable, Sendable, Codable, CustomStringConvertible {
     }
 
     /// Parses the dash-separated form, for example `"0-0-0-0-2-8"`.
-    public init?(_ string: String, portsPerEdge: Int) {
+    public init?(_ string: String, portsPerEdge: Int, edgeCount: Int = HexGeometry.edgeCount) {
         let parts = string.split(separator: "-", omittingEmptySubsequences: false).map { Int($0) }
-        guard parts.count == HexGeometry.edgeCount, !parts.contains(nil) else { return nil }
+        guard parts.count == edgeCount, !parts.contains(nil) else { return nil }
         self.init(portsPerEdge: portsPerEdge, values: parts.compactMap { $0 })
     }
 
@@ -39,7 +41,7 @@ public struct EdgeCode: Hashable, Sendable, Codable, CustomStringConvertible {
     }
 
     public var occupiedPorts: [Port] {
-        (0..<HexGeometry.edgeCount).flatMap { edge in
+        values.indices.flatMap { edge in
             (0..<portsPerEdge).map { Port(edge: edge, slot: $0) }
         }.filter(isOccupied)
     }
@@ -56,7 +58,7 @@ public struct EdgeCode: Hashable, Sendable, Codable, CustomStringConvertible {
     }
 
     public func transformed(by transform: TileTransform) -> EdgeCode {
-        let count = HexGeometry.edgeCount
+        let count = values.count
         var result = values
         if transform.mirrored {
             result = (0..<count).map { edge in
@@ -71,10 +73,10 @@ public struct EdgeCode: Hashable, Sendable, Codable, CustomStringConvertible {
     }
 
     /// The same profile in a standard orientation: the smallest of its
-    /// twelve placements. Two tiles the generator can use interchangeably,
+    /// placements, twelve for a hexagon. Two tiles the generator can use interchangeably,
     /// after turning or flipping one of them, share a canonical code.
     public var canonical: EdgeCode {
-        TileTransform.allCases
+        TileTransform.all(sides: values.count)
             .map { transformed(by: $0) }
             .min { $0.values.lexicographicallyPrecedes($1.values) } ?? self
     }

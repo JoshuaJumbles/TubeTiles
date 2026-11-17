@@ -30,34 +30,23 @@ public struct Point: Hashable, Sendable, Codable {
 }
 
 /// Geometry of a single flat-top hex tile centred on the origin with a
-/// circumradius of 1.
-///
-/// Corners and edges are numbered clockwise on screen. Edge 0 is the top edge
-/// and runs from corner 0 (upper left) to corner 1 (upper right); edge `e`
-/// runs from corner `e` to corner `e + 1`.
+/// circumradius of 1. This is `TileShape.hexagon` under its older name, kept
+/// for the hex grid that mazes are laid out on.
 public enum HexGeometry {
-    public static let edgeCount = 6
+    public static let edgeCount = TileShape.hexagon.edgeCount
 
     public static func corner(_ index: Int) -> Point {
-        let angle = (-120.0 + 60.0 * Double(index)) * .pi / 180
-        return Point(x: cos(angle), y: sin(angle))
+        TileShape.hexagon.corner(index)
     }
 
-    /// Where a port sits on its edge. Ports are spaced evenly, leaving the
-    /// same gap at the corners as between neighbours.
     public static func position(of port: Port, portsPerEdge: Int) -> Point {
-        let start = corner(port.edge)
-        let end = corner(port.edge + 1)
-        let t = Double(port.slot + 1) / Double(portsPerEdge + 1)
-        return start + (end - start) * t
+        TileShape.hexagon.position(of: port, portsPerEdge: portsPerEdge)
     }
 
-    /// Unit vector pointing from an edge into the tile, perpendicular to it.
     public static func inwardDirection(edge: Int) -> Point {
-        let angle = (90.0 + 60.0 * Double(edge)) * .pi / 180
-        return Point(x: cos(angle), y: sin(angle))
+        TileShape.hexagon.inwardDirection(edge: edge)
     }
 
     /// Distance from the centre to the middle of an edge.
-    public static let inradius = (3.0).squareRoot() / 2
+    public static let inradius = TileShape.hexagon.inradius
 }

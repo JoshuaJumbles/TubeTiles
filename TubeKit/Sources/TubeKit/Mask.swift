@@ -145,7 +145,7 @@ struct MaskedRegion: Hashable, Sendable {
         // Slivers of cells at the edge often have ports that are inside but
         // that nothing can be drawn from. Close those, on both sides, and
         // look again: closing one can leave another with no partner.
-        let blank = Tile(portsPerEdge: count, gauge: style.gauge)
+        let blank = Tile(portsPerEdge: count, gauge: style.gauge, shape: style.shape)
         let coverage = CoverageMap(tile: blank)
         func canBeDrawn(from port: Port, in coord: HexCoord, among live: [Port]) -> Bool {
             for partner in live where partner != port {

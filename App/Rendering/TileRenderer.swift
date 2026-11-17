@@ -4,7 +4,7 @@ import TubeKit
 /// Where a tile sits in a view: converts between tile units and view points.
 struct TileFrame {
     var center: CGPoint
-    /// View points per tile unit (the hex circumradius).
+    /// View points per tile unit: the length of a tile's edge.
     var scale: CGFloat
 
     init(center: CGPoint, scale: CGFloat) {
@@ -12,12 +12,14 @@ struct TileFrame {
         self.scale = scale
     }
 
-    /// The largest frame that fits a whole hex inside `size`.
-    init(fitting size: CGSize, padding: CGFloat = 0) {
+    /// The largest frame that fits a whole tile of the given shape inside
+    /// `size`.
+    init(fitting size: CGSize, padding: CGFloat = 0, shape: TileShape = .hexagon) {
         center = CGPoint(x: size.width / 2, y: size.height / 2)
         let width = max(1, size.width - padding * 2)
         let height = max(1, size.height - padding * 2)
-        scale = min(width / 2, height / (HexGeometry.inradius * 2))
+        let outline = shape.size
+        scale = min(width / outline.width, height / outline.height)
     }
 
     func point(_ point: Point) -> CGPoint {
@@ -83,14 +85,17 @@ struct TilePalette {
 
 /// Draws tiles and pipes. Every screen that shows a tile goes through here.
 enum TileRenderer {
-    static func hexPath(in frame: TileFrame) -> Path {
+    /// The outline of a tile of the given shape.
+    static func outline(of shape: TileShape, in frame: TileFrame) -> Path {
         var path = Path()
-        path.move(to: frame.point(HexGeometry.corner(0)))
-        for index in 1..<HexGeometry.edgeCount {
-            path.addLine(to: frame.point(HexGeometry.corner(index)))
-        }
+        path.addLines(shape.corners.map(frame.point))
         path.closeSubpath()
         return path
+    }
+
+    /// The outline of a cell of the hex grid that mazes are laid out on.
+    static func hexPath(in frame: TileFrame) -> Path {
+        outline(of: .hexagon, in: frame)
     }
 
     static func centerLine(of shape: PipeShape, in frame: TileFrame) -> Path {
@@ -185,7 +190,7 @@ enum TileRenderer {
         palette: TilePalette = .standard
     ) {
         var clipped = context
-        clipped.clip(to: hexPath(in: frame))
+        clipped.clip(to: outline(of: tile.shape, in: frame))
         let style = tile.style
         for pipe in tile.pipes {
             draw(pipe, style: style, in: frame, context: &clipped, palette: palette)
