@@ -45,6 +45,54 @@ struct LibraryView: View {
     @State private var selectedTile: Tile?
     @State private var editing: Editing?
     @State private var isConfirmingDelete = false
+    @State private var isImporting = false
+    /// A library read from a file, waiting to be told where it goes.
+    @State private var incoming: TileLibrary?
+    /// What an import did, or why it could not be done.
+    @State private var importNotice: String?
+
+    /// Reads the file the user picked. Files from outside the app have to be
+    /// asked for before they can be read.
+    private func readImport(_ result: Result<URL, any Error>) {
+        do {
+            let url = try result.get()
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            incoming = try LibraryFile.decode(Data(contentsOf: url))
+        } catch is DecodingError {
+            importNotice = "That file is not a TubeTiles library."
+        } catch {
+            importNotice = "The file could not be read."
+        }
+    }
+
+    private func addIncoming() {
+        guard let incoming else { return }
+        do {
+            let added = try library.addImported(incoming)
+            importNotice = "Added \u{201C}\(added.name)\u{201D} with \(Self.count(added.tiles.count))."
+        } catch {
+            importNotice = "The library could not be saved."
+        }
+    }
+
+    private func mergeIncoming(into target: TileLibrary) {
+        guard let incoming else { return }
+        do {
+            let result = try library.merge(incoming, into: target.id)
+            var parts = ["Added \(Self.count(result.added)) to \u{201C}\(target.name)\u{201D}."]
+            if result.skipped > 0 {
+                parts.append(result.skipped == 1 ? "1 was already there." : "\(result.skipped) were already there.")
+            }
+            importNotice = parts.joined(separator: " ")
+        } catch {
+            importNotice = "The tiles could not be saved."
+        }
+    }
+
+    private static func count(_ tiles: Int) -> String {
+        tiles == 1 ? "1 tile" : "\(tiles) tiles"
+    }
 
     private func groups(in tiles: TileLibrary) -> [ProfileGroup] {
         var groups = tiles.tilesByProfile.map { ProfileGroup(profile: $0.key, tiles: $0.value) }
@@ -75,6 +123,30 @@ struct LibraryView: View {
                 // The title is drawn in the page so it scrolls with the tiles.
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { toolbar(for: current) }
+                .fileImporter(isPresented: $isImporting, allowedContentTypes: [.json], onCompletion: readImport)
+                .confirmationDialog(
+                    "Import \u{201C}\(incoming?.name ?? "")\u{201D}",
+                    isPresented: Binding(get: { incoming != nil }, set: { if !$0 { incoming = nil } }),
+                    titleVisibility: .visible,
+                    presenting: incoming
+                ) { found in
+                    Button("Add as a new library") { addIncoming() }
+                    if found.portsPerEdge == current.portsPerEdge {
+                        Button("Add its tiles to \u{201C}\(current.name)\u{201D}") { mergeIncoming(into: current) }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: { found in
+                    Text("\(Self.count(found.tiles.count)), \(found.portsPerEdge) ports per edge."
+                        + (found.portsPerEdge == current.portsPerEdge
+                            ? " Adding its tiles to \u{201C}\(current.name)\u{201D} leaves out any already there and keeps this library\u{2019}s rules."
+                            : ""))
+                }
+                .alert(
+                    importNotice ?? "",
+                    isPresented: Binding(get: { importNotice != nil }, set: { if !$0 { importNotice = nil } })
+                ) {
+                    Button("OK", role: .cancel) {}
+                }
                 .confirmationDialog(
                     "Delete \u{201C}\(current.name)\u{201D}?",
                     isPresented: $isConfirmingDelete,
@@ -156,6 +228,14 @@ struct LibraryView: View {
                 Button { _ = try? library.duplicate(id: current.id) } label: {
                     Label("Duplicate this library", systemImage: "plus.square.on.square")
                 }
+                Divider()
+                ShareLink(item: LibraryFile(library: current), preview: SharePreview(LibraryFile(library: current).fileName)) {
+                    Label("Export this library", systemImage: "square.and.arrow.up")
+                }
+                Button { isImporting = true } label: {
+                    Label("Import a library", systemImage: "square.and.arrow.down")
+                }
+                Divider()
                 Button(role: .destructive) { isConfirmingDelete = true } label: {
                     Label("Delete this library", systemImage: "trash")
                 }

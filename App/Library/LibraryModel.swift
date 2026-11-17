@@ -109,6 +109,27 @@ final class LibraryModel {
         try commit(library)
     }
 
+    /// Adds a library that came from a file as a new one of its own, and
+    /// makes it current. It gets a new identity and, if its name is taken,
+    /// a number after it, so nothing already here is replaced.
+    @discardableResult
+    func addImported(_ incoming: TileLibrary) throws -> TileLibrary {
+        let library = incoming.adopted(named: unusedName(incoming.name))
+        try commit(library)
+        select(library.id)
+        return library
+    }
+
+    /// Adds the tiles of a library that came from a file to one already
+    /// here, leaving out any it already has.
+    @discardableResult
+    func merge(_ incoming: TileLibrary, into id: UUID) throws -> (added: Int, skipped: Int) {
+        guard var library = library(id: id) else { return (0, 0) }
+        let result = library.merge(incoming)
+        if result.added > 0 { try commit(library) }
+        return result
+    }
+
     /// Makes a separate copy of a library, with its own tiles, and makes the
     /// copy current.
     @discardableResult
