@@ -60,7 +60,7 @@ final class EditorModel {
     /// they are or turned or flipped. Saving is still allowed.
     var duplicateNote: String? {
         guard let twin = library.current.twin(of: tile) else { return nil }
-        if twin.transform == .identity { return "Already in library" }
+        if twin.transform.isIdentity { return "Already in library" }
         return twin.transform.mirrored
             ? "Already in library, flipped"
             : "Already in library, turned"

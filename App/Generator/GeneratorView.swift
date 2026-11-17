@@ -215,6 +215,7 @@ private struct GeneratorPanel: View {
         case .half: "Half turn"
         case .third: "Third turn"
         case .sixth: "Sixth turn"
+        case .quarter: "Quarter turn"
         }
     }
 
@@ -266,7 +267,7 @@ private struct GeneratorPanel: View {
 
             LabeledContent("Symmetry") {
                 Picker("Symmetry", selection: $model.symmetry) {
-                    ForEach(Symmetry.allCases, id: \.self) { Text(name($0)).tag($0) }
+                    ForEach(model.maze.tiling.symmetries, id: \.self) { Text(name($0)).tag($0) }
                 }
                 .pickerStyle(.menu)
             }
@@ -401,7 +402,7 @@ private struct GeneratorPanel: View {
                 if model.activeLibrary != nil {
                     Text("^[\(model.libraryTileCount) tile](inflect: true) in \u{201C}\(model.currentLibrary.name)\u{201D}")
                 } else {
-                    Text("\u{201C}\(model.currentLibrary.name)\u{201D} has \(model.currentLibrary.portsPerEdge) ports per edge and this maze has \(model.portsPerEdge), so its tiles are not used here.")
+                    Text("\u{201C}\(model.currentLibrary.name)\u{201D} has \(GeneratorModel.describe(model.currentLibrary)) and this maze has \(model.mazeDescription), so its tiles are not used here.")
                 }
                 if !model.maze.cells.isEmpty {
                     Text("\(model.maze.cells.count - model.generatedTileCount) from the library, \(model.generatedTileCount) made up")

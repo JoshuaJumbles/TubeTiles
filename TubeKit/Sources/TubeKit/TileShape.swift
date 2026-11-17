@@ -14,10 +14,13 @@ import Foundation
 public enum TileShape: String, Hashable, Sendable, Codable, CaseIterable {
     /// A regular hexagon with a flat top.
     case hexagon
+    /// A square with its edges level and upright.
+    case square
 
     public var edgeCount: Int {
         switch self {
         case .hexagon: 6
+        case .square: 4
         }
     }
 
@@ -25,6 +28,7 @@ public enum TileShape: String, Hashable, Sendable, Codable, CaseIterable {
     public var circumradius: Double {
         switch self {
         case .hexagon: 1
+        case .square: (0.5).squareRoot()
         }
     }
 
@@ -32,6 +36,7 @@ public enum TileShape: String, Hashable, Sendable, Codable, CaseIterable {
     public var inradius: Double {
         switch self {
         case .hexagon: (3.0).squareRoot() / 2
+        case .square: 0.5
         }
     }
 
