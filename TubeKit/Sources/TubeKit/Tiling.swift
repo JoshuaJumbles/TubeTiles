@@ -53,12 +53,22 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     case hexagonal
     /// Squares in rows and columns.
     case square
+    /// Cairo pentagons. They come in pairs joined along their flat edges,
+    /// with the wide corners pointing away from each other. The pairs sit
+    /// on a square grid, standing upright and lying sideways by turns like
+    /// the squares of a chessboard, so a pentagon points one of four ways.
+    ///
+    /// A cell's `q` is its pair's column. Its `r` is twice the pair's row,
+    /// plus one for the second pentagon of the pair: the upper one of an
+    /// upright pair, the right-hand one of a sideways pair.
+    case cairo
 
     /// The tiling whose cells have the given shape.
     public init(shape: TileShape) {
         switch shape {
         case .hexagon: self = .hexagonal
         case .square: self = .square
+        case .cairo: self = .cairo
         }
     }
 
@@ -68,15 +78,52 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         switch self {
         case .hexagonal: .hexagon
         case .square: .square
+        case .cairo: .cairo
         }
     }
+
+    /// Distance between neighbouring pairs of Cairo pentagons.
+    static let cairoPitch = 0.5 + TileShape.cairoHalfHeight * 2
+
+    /// A Cairo cell's pair, which pentagon of the pair it is, and whether
+    /// the pair lies sideways.
+    private static func cairoParts(_ cell: HexCoord) -> (column: Int, row: Int, second: Bool, sideways: Bool) {
+        let row = Int((Double(cell.r) / 2).rounded(.down))
+        let column = cell.q
+        return (column, row, cell.r - 2 * row == 1, ((column + row) % 2 + 2) % 2 == 1)
+    }
+
+    /// For each kind of Cairo cell (upright first, upright second, sideways
+    /// first, sideways second) and each edge: how far away the neighbouring
+    /// pair is, which pentagon of it, and which edge.
+    private static let cairoNeighbours: [[(column: Int, row: Int, second: Bool, edge: Int)]] = [
+        [(0, 0, true, 0), (1, 0, false, 2), (0, 1, true, 1), (0, 1, false, 4), (-1, 0, true, 3)],
+        [(0, 0, false, 0), (-1, 0, true, 2), (0, -1, false, 1), (0, -1, true, 4), (1, 0, false, 3)],
+        [(0, 0, true, 0), (0, 1, true, 2), (-1, 0, false, 1), (-1, 0, true, 4), (0, -1, false, 3)],
+        [(0, 0, false, 0), (0, -1, false, 2), (1, 0, true, 1), (1, 0, false, 4), (0, 1, true, 3)],
+    ]
 
     /// Centre of a cell, in units of a tile's edge.
     public func center(of cell: HexCoord) -> Point {
         switch self {
-        case .hexagonal: cell.center
+        case .hexagonal:
+            return cell.center
         // One unit a cell: `q` counts columns to the right, `r` rows down.
-        case .square: Point(x: Double(cell.q), y: Double(cell.r))
+        case .square:
+            return Point(x: Double(cell.q), y: Double(cell.r))
+        case .cairo:
+            // Each pentagon sits half its height from the middle of its
+            // pair, on the side its wide corner points to.
+            let parts = Self.cairoParts(cell)
+            let reach = TileShape.cairoHalfHeight
+            let x = Double(parts.column) * Self.cairoPitch
+            let y = Double(parts.row) * Self.cairoPitch
+            if parts.sideways {
+                // The first points left and sits to the left.
+                return Point(x: x + (parts.second ? reach : -reach), y: y)
+            }
+            // The first points down and sits below.
+            return Point(x: x, y: y + (parts.second ? -reach : reach))
         }
     }
 
@@ -84,7 +131,14 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     /// in radians. Every cell is upright in the tilings so far.
     public func turn(of cell: HexCoord) -> Double {
         switch self {
-        case .hexagonal, .square: 0
+        case .hexagonal, .square:
+            return 0
+        case .cairo:
+            // Upright pairs point down then up, sideways pairs left then
+            // right, counted in quarter turns clockwise from pointing down.
+            let parts = Self.cairoParts(cell)
+            let quarters = parts.sideways ? (parts.second ? 3 : 1) : (parts.second ? 2 : 0)
+            return Double(quarters) * .pi / 2
         }
     }
 
@@ -104,6 +158,14 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             // Edges run top, right, bottom, left.
             let step = [(0, -1), (1, 0), (0, 1), (-1, 0)][edge]
             return (HexCoord(q: cell.q + step.0, r: cell.r + step.1), (edge + 2) % 4)
+        case .cairo:
+            let parts = Self.cairoParts(cell)
+            let kind = (parts.sideways ? 2 : 0) + (parts.second ? 1 : 0)
+            let other = Self.cairoNeighbours[kind][edge]
+            return (
+                HexCoord(q: parts.column + other.column, r: 2 * (parts.row + other.row) + (other.second ? 1 : 0)),
+                other.edge
+            )
         }
     }
 
@@ -119,16 +181,24 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     /// cell within some number of rings.
     public func ring(of cell: HexCoord) -> Int {
         switch self {
-        case .hexagonal: cell.ring
+        case .hexagonal:
+            return cell.ring
         // Rings of squares are square, so a region is a square block.
-        case .square: max(abs(cell.q), abs(cell.r))
+        case .square:
+            return max(abs(cell.q), abs(cell.r))
+        case .cairo:
+            // By pairs, so a region is a square block of them.
+            let parts = Self.cairoParts(cell)
+            return max(abs(parts.column), abs(parts.row))
         }
     }
 
     /// Every cell within `radius` rings of the origin, in a stable order.
     public func cells(radius: Int) -> [HexCoord] {
-        (-radius...radius).flatMap { q in
-            (-radius...radius).map { HexCoord(q: q, r: $0) }
+        // A Cairo row holds two cells, so its `r` runs twice as far.
+        let rows = self == .cairo ? (-2 * radius)...(2 * radius + 1) : (-radius)...radius
+        return (-radius...radius).flatMap { q in
+            rows.map { HexCoord(q: q, r: $0) }
         }.filter { ring(of: $0) <= radius }
     }
 
@@ -136,6 +206,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         switch self {
         case .hexagonal: 3 * radius * (radius + 1) + 1
         case .square: (2 * radius + 1) * (2 * radius + 1)
+        case .cairo: 2 * (2 * radius + 1) * (2 * radius + 1)
         }
     }
 
@@ -144,9 +215,15 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     public func extent(radius: Int) -> (width: Double, height: Double) {
         switch self {
         case .hexagonal:
-            (3 * Double(radius) + 2, TileShape.hexagon.inradius * 2 * Double(2 * radius + 1))
+            return (3 * Double(radius) + 2, TileShape.hexagon.inradius * 2 * Double(2 * radius + 1))
         case .square:
-            (Double(2 * radius + 1), Double(2 * radius + 1))
+            return (Double(2 * radius + 1), Double(2 * radius + 1))
+        case .cairo:
+            // A lone pair is taller than wide. From one ring out, sideways
+            // pairs reach as far across as upright ones reach up and down.
+            if radius == 0 { return (TileShape.cairoSine * 2, TileShape.cairoHalfHeight * 4) }
+            let side = 2 * (Double(radius) * Self.cairoPitch + TileShape.cairoHalfHeight * 2)
+            return (side, side)
         }
     }
 
@@ -167,6 +244,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
                 case .square:
                     // A cell reaches half a unit either side of its centre.
                     furthest = max(furthest, abs(x) - 0.5, abs(y) - 0.5)
+                case .cairo:
+                    furthest = max(furthest, abs(x) / Self.cairoPitch, abs(y) / Self.cairoPitch)
                 }
             }
         }
@@ -178,6 +257,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         switch self {
         case .hexagonal: 1.5 * Double(columns) + 0.5
         case .square: Double(columns)
+        // Two pentagons side by side take up one pitch.
+        case .cairo: Double(columns) * Self.cairoPitch / 2
         }
     }
 
@@ -186,6 +267,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         switch self {
         case .hexagonal: Int(((width - 0.5) / 1.5).rounded())
         case .square: Int(width.rounded())
+        case .cairo: Int((width * 2 / Self.cairoPitch).rounded())
         }
     }
 
@@ -196,6 +278,9 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         switch self {
         case .hexagonal: [.none, .mirror, .half, .third, .sixth]
         case .square: [.none, .mirror, .half, .quarter]
+        // Its symmetries turn about a corner where four pentagons meet,
+        // not about a cell, and are not offered yet.
+        case .cairo: [.none]
         }
     }
 
@@ -214,6 +299,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             // A square grid has no third or sixth turn.
             case .none, .third, .sixth: return [same]
             }
+        case .cairo:
+            return [TileTransform(sides: 5)]
         }
     }
 
@@ -232,6 +319,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
                 (q, r) = (-r, q)
             }
             return HexCoord(q: q, r: r)
+        case .cairo:
+            return cell
         }
     }
 

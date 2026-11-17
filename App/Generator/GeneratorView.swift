@@ -265,11 +265,14 @@ private struct GeneratorPanel: View {
                 .disabled(model.maze.cells.isEmpty)
             }
 
+            // Left out where the grid has no symmetry to offer.
+            if model.maze.tiling.symmetries.count > 1 {
             LabeledContent("Symmetry") {
                 Picker("Symmetry", selection: $model.symmetry) {
                     ForEach(model.maze.tiling.symmetries, id: \.self) { Text(name($0)).tag($0) }
                 }
                 .pickerStyle(.menu)
+            }
             }
 
             if model.hasBounds {

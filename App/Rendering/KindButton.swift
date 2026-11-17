@@ -7,6 +7,7 @@ extension TileShape {
         switch self {
         case .hexagon: "Hexagon"
         case .square: "Square"
+        case .cairo: "Cairo"
         }
     }
 
@@ -15,6 +16,7 @@ extension TileShape {
         switch self {
         case .hexagon: "hexagon tiles"
         case .square: "square tiles"
+        case .cairo: "Cairo tiles"
         }
     }
 }

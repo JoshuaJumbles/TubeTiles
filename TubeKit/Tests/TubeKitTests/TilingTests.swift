@@ -20,11 +20,23 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
             let middle = (start + end) * 0.5
             #expect(shape.contains(middle + inward * 0.1))
             #expect(!shape.contains(middle + inward * -0.1))
-            #expect(abs(middle.distance(to: .zero) - shape.inradius) < 1e-9)
+            // No edge comes closer to the centre than the inradius.
+            let offset = Point.zero - start
+            #expect(offset.x * inward.x + offset.y * inward.y >= shape.inradius - 1e-9)
+            if shape.isRegular { #expect(abs(middle.distance(to: .zero) - shape.inradius) < 1e-9) }
         }
         #expect(shape.contains(.zero))
-        #expect(shape.transforms.count == shape.edgeCount * 2)
-        #expect(Set(shape.transforms).count == shape.edgeCount * 2)
+        #expect(shape.corners.allSatisfy { $0.distance(to: .zero) <= shape.circumradius + 1e-9 })
+        // A regular shape can be turned to any edge and flipped; an
+        // irregular one has fewer ways to sit.
+        #expect(shape.transforms.first?.isIdentity == true)
+        #expect(Set(shape.transforms).count == shape.transforms.count)
+        #expect(shape.transforms.count == (shape.isRegular ? shape.edgeCount * 2 : 2))
+        // Each placement puts the outline back on itself.
+        for transform in shape.transforms {
+            let moved = shape.corners.map { transform.apply(to: $0) }
+            #expect(moved.allSatisfy { point in shape.corners.contains { close($0, point) } })
+        }
     }
 
     @Test(arguments: TileShape.allCases)
@@ -69,9 +81,9 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
                     let port = TubeKit.Port(edge: edge, slot: slot)
                     let twin = tiling.touching(port, of: cell, portsPerEdge: 3)
                     #expect(close(
-                        tiling.center(of: cell) + shape.position(of: port, portsPerEdge: 3),
-                        tiling.center(of: twin.coord)
-                            + tiling.shape(of: twin.coord).position(of: twin.port, portsPerEdge: 3)
+                        tiling.frame(of: cell).place(shape.position(of: port, portsPerEdge: 3)),
+                        tiling.frame(of: twin.coord)
+                            .place(tiling.shape(of: twin.coord).position(of: twin.port, portsPerEdge: 3))
                     ))
                 }
             }
@@ -91,7 +103,7 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
             var height = 0.0
             for cell in cells {
                 for corner in tiling.shape(of: cell).corners {
-                    let point = tiling.center(of: cell) + corner
+                    let point = tiling.frame(of: cell).place(corner)
                     width = max(width, abs(point.x) * 2)
                     height = max(height, abs(point.y) * 2)
                 }
@@ -306,5 +318,190 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
         #expect(MazeSVG.render(maze).contains("<polygon"))
         let brief = try #require(maze.brief(at: HexCoord(q: 2, r: 2)))
         #expect(brief.required.count == 4)
+    }
+}
+
+@Suite struct CairoTests {
+    private func port(_ edge: Int, _ slot: Int) -> TubeKit.Port { TubeKit.Port(edge: edge, slot: slot) }
+
+    /// Every point a maze's pipes are drawn through, in the plane.
+    private func ink(of maze: Maze) -> [(point: Point, reach: Double)] {
+        var result: [(Point, Double)] = []
+        for (coord, placed) in maze.cells {
+            let style = maze.style(at: coord)
+            let frame = maze.frame(of: coord)
+            for pipe in placed.oriented.pipes {
+                let shape = PipeShape(pipe, style: style)
+                for segment in shape.segments {
+                    for point in segment.flattened(steps: 30) { result.append((frame.place(point), style.pipeWidth / 2)) }
+                }
+                if let room = shape.room { result.append((frame.place(room.center), room.diameter / 2)) }
+            }
+        }
+        return result
+    }
+
+    @Test func thePentagonHasTwoRightAnglesAndPointsFourWays() {
+        let shape = TileShape.cairo
+        func angle(at index: Int) -> Double {
+            let here = shape.corner(index)
+            let before = shape.corner(index + 4) - here
+            let after = shape.corner(index + 1) - here
+            let cosine = (before.x * after.x + before.y * after.y)
+            return acos(max(-1, min(1, cosine))) * 180 / .pi
+        }
+        let angles = (0..<5).map(angle)
+        #expect(abs(angles[2] - 90) < 1e-6)
+        #expect(abs(angles[4] - 90) < 1e-6)
+        #expect(abs(angles[0] - angles[1]) < 1e-6)
+        #expect(abs(angles.reduce(0, +) - 540) < 1e-6)
+        #expect(angles[3] > 131 && angles[3] < 132)
+
+        // The four cells nearest the middle each point a different way.
+        let tiling = Tiling.cairo
+        let turns = Set(tiling.cells(radius: 1).map { Int((tiling.turn(of: $0) / (.pi / 2)).rounded()) })
+        #expect(turns == [0, 1, 2, 3])
+        #expect(tiling.cells(radius: 0).count == 2)
+        #expect(tiling.symmetries == [Symmetry.none])
+    }
+
+    @Test func pipesStayInsideThePentagon() throws {
+        var random = SeededGenerator(seed: 5)
+        var pipes = 0
+        for _ in 0..<40 {
+            var tile = Tile(portsPerEdge: 4, shape: .cairo)
+            tile.fillRandomly(using: &random)
+            #expect(!CoverageMap(tile: tile).hasViolation)
+            #expect(tile.edgeCode.values.count == 5)
+            pipes += tile.pipes.count
+            for pipe in tile.pipes {
+                let shape = PipeShape(pipe, style: tile.style)
+                for segment in shape.segments {
+                    for point in segment.flattened(steps: 30) {
+                        // Allow for the slight bulge of a curve near an edge.
+                        let inside = TileShape.cairo.corners.indices.allSatisfy { edge in
+                            let offset = point - TileShape.cairo.corner(edge)
+                            let inward = TileShape.cairo.inwardDirection(edge: edge)
+                            return offset.x * inward.x + offset.y * inward.y > -0.02
+                        }
+                        #expect(inside)
+                    }
+                }
+            }
+            let loaded = try JSONDecoder().decode(Tile.self, from: JSONEncoder().encode(tile))
+            #expect(loaded == tile)
+        }
+        #expect(pipes > 120)
+    }
+
+    @Test func aPentagonSitsTwoWays() throws {
+        let tile = try Tile(portsPerEdge: 3, shape: .cairo, pipes: [
+            Pipe(.bezier, a: port(0, 0), b: port(2, 1)),
+            Pipe(.bezier, a: port(1, 2), b: port(3, 0)),
+        ])
+        #expect(TileShape.cairo.transforms.count == 2)
+        let flipped = tile.transformed(by: TileShape.cairo.transforms[1])
+        #expect(Set(flipped.pipes) != Set(tile.pipes))
+        #expect(flipped.edgeCode.values.count == 5)
+        #expect(flipped.transformed(by: TileShape.cairo.transforms[1]).pipes.sorted { ($0.a, $0.b) < ($1.a, $1.b) }
+            == tile.pipes.sorted { ($0.a, $0.b) < ($1.a, $1.b) })
+        #expect(tile.profile == flipped.profile)
+
+        var library = TileLibrary(name: "Cairo", portsPerEdge: 3, shape: .cairo)
+        library.save(tile)
+        let again = Tile(portsPerEdge: 3, shape: .cairo, uncheckedPipes: flipped.pipes)
+        #expect(library.twin(of: again)?.tile.id == tile.id)
+        #expect(MazeGenerator(tiles: library.tiles).options.count == 2)
+    }
+
+    @Test(arguments: [3, 4, 6])
+    func cairoMazesSeal(ports: Int) throws {
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        var sealed = 0
+        let runs = 6
+        for seed in 0..<runs {
+            var maze = Maze(portsPerEdge: ports, radius: 2, tiling: .cairo)
+            #expect(maze.cellCount == 50)
+            var random = SeededGenerator(seed: UInt64(seed))
+            if generator.fill(&maze, symmetry: .none, using: &random) { sealed += 1 }
+            for (coord, placed) in maze.cells {
+                #expect(placed.source.shape == .cairo)
+                #expect(maze.fits(placed.code, at: coord))
+                #expect(!CoverageMap(tile: placed.source).hasViolation)
+                #expect(placed.transform.turns == 0)
+            }
+            guard maze.isSealed else { continue }
+            let allClosed = maze.paths.paths.allSatisfy { $0.isClosed }
+            #expect(allClosed)
+            let before = maze.paths.paths.count
+            LoopMerger(generator: generator).mergeAll(&maze, using: &random)
+            #expect(maze.isSealed)
+            #expect(maze.paths.paths.count <= before)
+            let loaded = try JSONDecoder().decode(Maze.self, from: JSONEncoder().encode(maze))
+            #expect(loaded == maze)
+
+            let sheet = BuildSheet(maze: maze)
+            for (coord, placed) in maze.cells {
+                let placement = try #require(sheet.placements[coord])
+                let rebuilt = sheet.entries[placement.entry].tile.transformed(by: placement.transform)
+                #expect(Set(rebuilt.pipes) == Set(placed.oriented.pipes))
+            }
+            #expect(MazeSVG.render(maze).contains("<polygon"))
+        }
+        #expect(sealed >= runs - 1)
+    }
+
+    @Test func pathsRunUnbrokenFromCellToCell() {
+        // Where a path crosses from one pentagon to the next, the two pipe
+        // ends are at the same spot in the plane, whichever way the cells
+        // are turned.
+        var maze = Maze(portsPerEdge: 4, radius: 2, tiling: .cairo)
+        var random = SeededGenerator(seed: 8)
+        MazeGenerator(tiles: []).fill(&maze, symmetry: .none, using: &random)
+        var joins = 0
+        for (coord, placed) in maze.cells {
+            for port in placed.oriented.occupiedPorts {
+                let other = maze.tiling.touching(port, of: coord, portsPerEdge: 4)
+                guard let neighbour = maze.cells[other.coord] else { continue }
+                #expect(neighbour.oriented.occupiedPorts.contains(other.port))
+                let here = maze.frame(of: coord).place(TileShape.cairo.position(of: port, portsPerEdge: 4))
+                let there = maze.frame(of: other.coord).place(TileShape.cairo.position(of: other.port, portsPerEdge: 4))
+                #expect(here.distance(to: there) < 1e-9)
+                joins += 1
+            }
+        }
+        #expect(joins > 40)
+    }
+
+    @Test func aBoundedCairoMazeStaysInside() {
+        let mask = Mask.rectangle(center: Point(x: 0.4, y: -0.2), width: 8.5, height: 6.5)
+        let radius = Maze.radius(covering: mask, limit: 12, tiling: .cairo)
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        var sealed = 0
+        for seed in 0..<5 {
+            var maze = Maze(portsPerEdge: 4, radius: radius, mask: mask, tiling: .cairo)
+            #expect(maze.cellCount > 15)
+            var random = SeededGenerator(seed: UInt64(seed))
+            if generator.fill(&maze, symmetry: .none, using: &random) { sealed += 1 }
+            #expect(!maze.cells.isEmpty)
+            let inside = ink(of: maze).allSatisfy { mask.contains($0.point, inset: $0.reach - 0.02) }
+            #expect(inside)
+        }
+        #expect(sealed >= 4)
+    }
+
+    @Test func goalsWorkOnCairoTiles() {
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        var sealed = 0
+        for seed in 0..<4 {
+            var maze = Maze(portsPerEdge: 4, radius: 2, tiling: .cairo)
+            maze.setGoals([.origin, HexCoord(q: 1, r: 2)])
+            var random = SeededGenerator(seed: UInt64(seed))
+            if generator.fill(&maze, symmetry: .none, using: &random) {
+                sealed += 1
+                #expect(maze.paths.paths.filter { !$0.isClosed }.count == 1)
+            }
+        }
+        #expect(sealed >= 3)
     }
 }

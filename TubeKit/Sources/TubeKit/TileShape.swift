@@ -16,36 +16,81 @@ public enum TileShape: String, Hashable, Sendable, Codable, CaseIterable {
     case hexagon
     /// A square with its edges level and upright.
     case square
+    /// The Cairo pentagon with five equal edges: two right angles, with a
+    /// wide corner between them at the bottom and a flat edge opposite it
+    /// at the top. It is its own mirror image left to right, and looks the
+    /// same no other way.
+    case cairo
 
     public var edgeCount: Int {
         switch self {
         case .hexagon: 6
         case .square: 4
+        case .cairo: 5
         }
     }
 
-    /// Distance from the centre to a corner.
+    /// Whether every edge and corner is alike, so the tile can be turned
+    /// one edge at a time.
+    public var isRegular: Bool {
+        switch self {
+        case .hexagon, .square: true
+        case .cairo: false
+        }
+    }
+
+    // The Cairo pentagon's measurements. With the flat edge from
+    // (-1/2, 0) to (1/2, 0), the two right-angled corners are at
+    // (-s, s) and (s, s), and the wide corner at (0, s - c), where
+    // c = (1 - root 7) / 4 is the cosine of the angle at each end of
+    // the flat edge and s is its sine.
+    static let cairoCosine = (1 - (7.0).squareRoot()) / 4
+    static let cairoSine = (1 - cairoCosine * cairoCosine).squareRoot()
+    /// Half the pentagon's height, from flat edge to wide corner.
+    static let cairoHalfHeight = (cairoSine - cairoCosine) / 2
+
+    private static let cairoCorners: [Point] = [
+        Point(x: -0.5, y: -cairoHalfHeight),
+        Point(x: 0.5, y: -cairoHalfHeight),
+        Point(x: cairoSine, y: (cairoSine + cairoCosine) / 2),
+        Point(x: 0, y: cairoHalfHeight),
+        Point(x: -cairoSine, y: (cairoSine + cairoCosine) / 2),
+    ]
+
+    /// Distance from the centre to the furthest corner.
     public var circumradius: Double {
         switch self {
         case .hexagon: 1
         case .square: (0.5).squareRoot()
+        case .cairo: Self.cairoCorners.map { $0.distance(to: .zero) }.max() ?? 1
         }
     }
 
-    /// Distance from the centre to the middle of an edge.
+    /// Distance from the centre to the nearest edge.
     public var inradius: Double {
         switch self {
         case .hexagon: (3.0).squareRoot() / 2
         case .square: 0.5
+        case .cairo:
+            (0..<edgeCount).map { edge in
+                let offset = Point.zero - corner(edge)
+                let inward = inwardDirection(edge: edge)
+                return offset.x * inward.x + offset.y * inward.y
+            }.min() ?? 0.5
         }
     }
 
-    /// Degrees turned from one edge to the next.
+    /// Degrees turned from one edge of a regular shape to the next.
     private var step: Double { 360.0 / Double(edgeCount) }
 
     public func corner(_ index: Int) -> Point {
-        let angle = (-90.0 - step / 2 + step * Double(index)) * .pi / 180
-        return Point(x: cos(angle), y: sin(angle)) * circumradius
+        switch self {
+        case .hexagon, .square:
+            let angle = (-90.0 - step / 2 + step * Double(index)) * .pi / 180
+            return Point(x: cos(angle), y: sin(angle)) * circumradius
+        case .cairo:
+            return Self.cairoCorners[((index % 5) + 5) % 5]
+        }
     }
 
     public var corners: [Point] {
@@ -63,8 +108,17 @@ public enum TileShape: String, Hashable, Sendable, Codable, CaseIterable {
 
     /// Unit vector pointing from an edge into the tile, perpendicular to it.
     public func inwardDirection(edge: Int) -> Point {
-        let angle = (90.0 + step * Double(edge)) * .pi / 180
-        return Point(x: cos(angle), y: sin(angle))
+        switch self {
+        case .hexagon, .square:
+            let angle = (90.0 + step * Double(edge)) * .pi / 180
+            return Point(x: cos(angle), y: sin(angle))
+        case .cairo:
+            // Corners run clockwise on screen, so inwards is a quarter turn
+            // clockwise from the way the edge runs.
+            let along = corner(edge + 1) - corner(edge)
+            let length = (along.x * along.x + along.y * along.y).squareRoot()
+            return Point(x: -along.y / length, y: along.x / length)
+        }
     }
 
     /// Whether a point is inside the outline.
@@ -96,10 +150,16 @@ public enum TileShape: String, Hashable, Sendable, Codable, CaseIterable {
         (0..<edgeCount).flatMap { edge in (0..<portsPerEdge).map { Port(edge: edge, slot: $0) } }
     }
 
-    /// Every way a tile of this shape can be placed: turned, or flipped and
-    /// then turned.
+    /// Every way a tile of this shape can be placed. A regular shape can be
+    /// turned to any edge, and flipped and then turned. The Cairo pentagon
+    /// can only be left as it is or flipped.
     public var transforms: [TileTransform] {
-        TileTransform.all(sides: edgeCount)
+        switch self {
+        case .hexagon, .square:
+            TileTransform.all(sides: edgeCount)
+        case .cairo:
+            [TileTransform(sides: edgeCount), TileTransform(mirrored: true, sides: edgeCount)]
+        }
     }
 
     /// The width and height of the outline.

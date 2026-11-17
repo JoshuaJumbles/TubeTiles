@@ -69,6 +69,11 @@ struct LibraryEditorView: View {
                 Pipe(.bezier, a: Port(edge: 0, slot: middle), b: Port(edge: 2, slot: last - middle)),
                 Pipe(.bezier, a: Port(edge: 3, slot: 0), b: Port(edge: 1, slot: 0)),
             ]
+        case .cairo:
+            pipes = [
+                Pipe(.bezier, a: Port(edge: 0, slot: middle), b: Port(edge: 2, slot: last - middle)),
+                Pipe(.bezier, a: Port(edge: 4, slot: middle), b: Port(edge: 1, slot: last - middle)),
+            ]
         }
         for pipe in pipes { try? tile.add(pipe) }
         return tile
@@ -145,7 +150,7 @@ struct LibraryEditorView: View {
                     }
                 } footer: {
                     Text(existing == nil
-                        ? "Every tile in a library has the same shape and the same number of ports. Neither can be changed later. Mazes grown from the library are laid out to suit the shape."
+                        ? "Every tile in a library has the same shape and the same number of ports. Neither can be changed later. Mazes grown from the library are laid out to suit the shape. A Cairo tile is a pentagon with five equal edges; it can be flipped but not turned, so a library of them needs more tiles."
                         : "The shape and port count are fixed once a library exists.")
                 }
 

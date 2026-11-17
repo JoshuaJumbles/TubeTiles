@@ -88,6 +88,19 @@ enum SampleData {
             if !tile.pipes.isEmpty { try? model.save(tile, to: squares?.id) }
         }
 
+        // A shape that only sits two ways.
+        let cairo = try? model.create(
+            name: "Cairo", note: "Pentagons.", portsPerEdge: 4,
+            allowedKinds: [.bezier, .corner, .roomSmall, .endSmall, .endMedium], shape: .cairo
+        )
+        for index in 0..<24 {
+            var tile = Tile(portsPerEdge: 4, shape: .cairo)
+            for _ in 0..<(2 + index % 4) {
+                tile.addRandomPipe(kinds: [.bezier, .bezier, .corner], using: &generator)
+            }
+            if !tile.pipes.isEmpty { try? model.save(tile, to: cairo?.id) }
+        }
+
         if let mixed { model.select(mixed.id) }
         try? model.deleteLibrary(id: placeholder)
         return model

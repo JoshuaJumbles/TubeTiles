@@ -40,7 +40,7 @@ struct TileDetailView: View {
                     VStack(spacing: 0) {
                         row("Edge code", tile.edgeCode.description, monospaced: true)
                         Divider()
-                        row("Profile", tile.edgeCode.canonical.description, monospaced: true)
+                        row("Profile", tile.profile.description, monospaced: true)
                         Divider()
                         row("Variants", variantCount == 1 ? "Only tile with this profile" : "\(variantCount) tiles share this profile")
                         Divider()

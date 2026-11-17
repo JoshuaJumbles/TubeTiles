@@ -260,9 +260,9 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     public func twin(of tile: Tile) -> (tile: Tile, transform: TileTransform)? {
         guard !tile.pipes.isEmpty else { return nil }
         let wanted = Set(tile.pipes)
-        let profile = tile.edgeCode.canonical
+        let profile = tile.profile
         for stored in tiles where stored.id != tile.id && stored.pipes.count == wanted.count {
-            guard stored.edgeCode.canonical == profile else { continue }
+            guard stored.profile == profile else { continue }
             // The plain placement first, so an exact copy is reported as one.
             for transform in shape.transforms where Set(stored.transformed(by: transform).pipes) == wanted {
                 return (stored, transform)
@@ -281,7 +281,7 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     /// Tiles grouped by canonical edge code: each group is a set of variants
     /// the generator can swap for one another, turning or flipping as needed.
     public var tilesByProfile: [EdgeCode: [Tile]] {
-        Dictionary(grouping: tiles) { $0.edgeCode.canonical }
+        Dictionary(grouping: tiles) { $0.profile }
     }
 
     /// For each edge pattern, how many tiles have an edge that can show it.

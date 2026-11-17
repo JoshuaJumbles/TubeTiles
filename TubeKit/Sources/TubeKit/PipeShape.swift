@@ -117,7 +117,13 @@ public struct PipeShape: Hashable, Sendable {
         let midpoint = (start + end) * 0.5
         // Where lines running straight in from each port cross. Nil when the
         // ports are on the same or opposite edges and the lines are parallel.
-        let meeting = Self.intersection(start, startDirection, end, endDirection)
+        var meeting = Self.intersection(start, startDirection, end, endDirection)
+        // On a shape whose edges are not all alike, those lines can cross
+        // outside the tile. A pipe bent towards such a point would leave the
+        // tile, so it is drawn as if the lines never met.
+        if let found = meeting, !outline.isRegular, !outline.contains(found) {
+            meeting = nil
+        }
 
         switch pipe.kind {
         case .bezier:
