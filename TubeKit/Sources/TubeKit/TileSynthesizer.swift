@@ -33,6 +33,7 @@ public enum TileSynthesizer {
     public static func tile(
         portsPerEdge: Int,
         gauge: PipeGauge = .standard,
+        shape: TileShape = .hexagon,
         ports: some Collection<Port>,
         invariantUnder symmetries: [TileTransform] = [],
         deadEnd: (port: Port, kind: PipeKind)? = nil,
@@ -42,10 +43,10 @@ public enum TileSynthesizer {
     ) -> Tile? {
         var wanted = Set(ports)
         guard wanted.count == ports.count,
-              wanted.allSatisfy({ $0.isValid(portsPerEdge: portsPerEdge) })
+              wanted.allSatisfy({ shape.isValid($0, portsPerEdge: portsPerEdge) })
         else { return nil }
 
-        var tile = Tile(portsPerEdge: portsPerEdge, gauge: gauge)
+        var tile = Tile(portsPerEdge: portsPerEdge, gauge: gauge, shape: shape)
         var coverage = CoverageMap(tile: tile)
         if let deadEnd {
             // The room goes in first, so every other pipe has to find a way

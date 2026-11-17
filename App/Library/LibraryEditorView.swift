@@ -50,7 +50,7 @@ struct LibraryEditorView: View {
     /// A few pipes at the chosen thickness, to judge the look by.
     private var sampleTile: Tile {
         let last = portsPerEdge - 1
-        var tile = Tile(portsPerEdge: portsPerEdge, gauge: gauge)
+        var tile = Tile(portsPerEdge: portsPerEdge, gauge: gauge, shape: existing?.shape ?? .hexagon)
         let middle = last / 2
         // One straight down with a curve crossing it above and below, so
         // both the look and the crossings can be judged.

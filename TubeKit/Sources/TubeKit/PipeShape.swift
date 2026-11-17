@@ -34,10 +34,13 @@ public struct PipeGauge: Hashable, Sendable, Codable {
 public struct TileStyle: Hashable, Sendable {
     public var portsPerEdge: Int
     public var gauge: PipeGauge
+    /// The outline of the tile the pipes are in.
+    public var shape: TileShape
 
-    public init(portsPerEdge: Int, gauge: PipeGauge = .standard) {
+    public init(portsPerEdge: Int, gauge: PipeGauge = .standard, shape: TileShape = .hexagon) {
         self.portsPerEdge = portsPerEdge
         self.gauge = gauge
+        self.shape = shape
     }
 
     /// Full width of a pipe including its walls.
@@ -53,7 +56,7 @@ public struct TileStyle: Hashable, Sendable {
     public var elbowDiameter: Double { pipeWidth * 1.1 }
 
     public func roomDiameter(for kind: PipeKind) -> Double? {
-        let height = HexGeometry.inradius * 2
+        let height = shape.inradius * 2
         switch kind {
         case .roomSmall: return height * 0.31
         case .roomMedium: return height * 0.62
@@ -104,12 +107,13 @@ public struct PipeShape: Hashable, Sendable {
 
     public init(_ pipe: Pipe, style: TileStyle) {
         let count = style.portsPerEdge
-        let start = HexGeometry.position(of: pipe.a, portsPerEdge: count)
-        let end = HexGeometry.position(of: pipe.b, portsPerEdge: count)
-        let startDirection = HexGeometry.inwardDirection(edge: pipe.a.edge)
-        let endDirection = HexGeometry.inwardDirection(edge: pipe.b.edge)
+        let outline = style.shape
+        let start = outline.position(of: pipe.a, portsPerEdge: count)
+        let end = outline.position(of: pipe.b, portsPerEdge: count)
+        let startDirection = outline.inwardDirection(edge: pipe.a.edge)
+        let endDirection = outline.inwardDirection(edge: pipe.b.edge)
         let sameEdge = pipe.a.edge == pipe.b.edge
-        let opposite = pipe.a.isOnOppositeEdge(from: pipe.b)
+        let opposite = outline.areOpposite(pipe.a.edge, pipe.b.edge)
         let midpoint = (start + end) * 0.5
         // Where lines running straight in from each port cross. Nil when the
         // ports are on the same or opposite edges and the lines are parallel.
@@ -125,7 +129,7 @@ public struct PipeShape: Hashable, Sendable {
             } else {
                 let reach = sameEdge
                     ? start.distance(to: end) * 0.75
-                    : opposite ? HexGeometry.inradius * 2 * 0.66 : 0.5
+                    : opposite ? outline.inradius * 2 * 0.66 : 0.5
                 control1 = start + startDirection * reach
                 control2 = end + endDirection * reach
             }
@@ -148,7 +152,7 @@ public struct PipeShape: Hashable, Sendable {
             // Straight in from the port, far enough for the room to clear
             // the edge it came from but never past the middle of the tile.
             let diameter = style.roomDiameter(for: pipe.kind) ?? 0
-            let depth = min(diameter / 2 + style.pipeWidth, HexGeometry.inradius)
+            let depth = min(diameter / 2 + style.pipeWidth, outline.inradius)
             let center = start + startDirection * depth
             segments = [.line(start, center)]
             room = Disc(center: center, diameter: diameter)

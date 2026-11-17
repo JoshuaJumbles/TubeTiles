@@ -15,8 +15,8 @@ struct TileCanvas: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let frame = TileFrame(fitting: proxy.size, padding: 30)
             let tile = model.tile
+            let frame = TileFrame(fitting: proxy.size, padding: 30, shape: tile.shape)
             let style = model.style
             let selectedPort = model.selectedPort
             let selectedPipe = model.selectedPipe
@@ -29,7 +29,7 @@ struct TileCanvas: View {
             let mustAvoid = brief?.mustAvoid ?? []
 
             Canvas { context, _ in
-                let hex = TileRenderer.hexPath(in: frame)
+                let hex = TileRenderer.outline(of: tile.shape, in: frame)
                 context.fill(hex, with: .color(Self.tileFace))
                 TileRenderer.draw(tile, in: frame, context: &context)
 
@@ -58,57 +58,54 @@ struct TileCanvas: View {
                 context.stroke(hex, with: .color(Self.outline), style: StrokeStyle(lineWidth: 2, lineJoin: .round))
 
                 let occupied = tile.occupiedPorts
-                for edge in 0..<HexGeometry.edgeCount {
-                    for slot in 0..<tile.portsPerEdge {
-                        let port = Port(edge: edge, slot: slot)
-                        let center = frame.point(HexGeometry.position(of: port, portsPerEdge: tile.portsPerEdge))
-                        func dot(_ radius: CGFloat) -> Path {
-                            Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+                for port in tile.shape.ports(portsPerEdge: tile.portsPerEdge) {
+                    let center = frame.point(tile.shape.position(of: port, portsPerEdge: tile.portsPerEdge))
+                    func dot(_ radius: CGFloat) -> Path {
+                        Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+                    }
+                    guard !occupied.contains(port) else {
+                        // A pipe where the gap needs the port empty.
+                        if mustAvoid.contains(port) {
+                            context.stroke(dot(10), with: .color(TilePalette.negative), lineWidth: 2.5)
                         }
-                        guard !occupied.contains(port) else {
-                            // A pipe where the gap needs the port empty.
-                            if mustAvoid.contains(port) {
-                                context.stroke(dot(10), with: .color(TilePalette.negative), lineWidth: 2.5)
-                            }
-                            continue
-                        }
-                        if mustUse.contains(port), port != selectedPort {
-                            // The gap needs a pipe here. Still green while
-                            // it is a valid far end for the pipe in hand.
-                            let wanted = highlightsTargets && validTargets.contains(port) ? Self.good : Color.accentColor
-                            context.fill(dot(4.5), with: .color(wanted))
-                            context.stroke(dot(10), with: .color(wanted), lineWidth: 2.5)
-                            continue
-                        }
-                        if mustAvoid.contains(port), !deadPorts.contains(port), port != selectedPort,
-                           !(highlightsTargets && validTargets.contains(port)) {
-                            // The gap needs this port empty: a small cross.
-                            var cross = Path()
-                            cross.move(to: CGPoint(x: center.x - 3.5, y: center.y - 3.5))
-                            cross.addLine(to: CGPoint(x: center.x + 3.5, y: center.y + 3.5))
-                            cross.move(to: CGPoint(x: center.x + 3.5, y: center.y - 3.5))
-                            cross.addLine(to: CGPoint(x: center.x - 3.5, y: center.y + 3.5))
-                            context.stroke(cross, with: .color(Self.outline.opacity(0.45)), lineWidth: 1.5)
-                            continue
-                        }
-                        if deadPorts.contains(port) {
-                            // Switched off in this library: a faint ring, so
-                            // it is clear the port exists but is not in use.
-                            context.stroke(dot(3), with: .color(Self.outline.opacity(0.3)), lineWidth: 1)
-                            continue
-                        }
-                        if port == selectedPort {
-                            context.fill(dot(7), with: .color(.accentColor))
-                            context.stroke(dot(12), with: .color(.accentColor), lineWidth: 2)
-                        } else if highlightsTargets {
-                            if validTargets.contains(port) {
-                                context.fill(dot(6), with: .color(Self.good))
-                            } else {
-                                context.fill(dot(2.5), with: .color(Self.outline.opacity(0.35)))
-                            }
+                        continue
+                    }
+                    if mustUse.contains(port), port != selectedPort {
+                        // The gap needs a pipe here. Still green while
+                        // it is a valid far end for the pipe in hand.
+                        let wanted = highlightsTargets && validTargets.contains(port) ? Self.good : Color.accentColor
+                        context.fill(dot(4.5), with: .color(wanted))
+                        context.stroke(dot(10), with: .color(wanted), lineWidth: 2.5)
+                        continue
+                    }
+                    if mustAvoid.contains(port), !deadPorts.contains(port), port != selectedPort,
+                       !(highlightsTargets && validTargets.contains(port)) {
+                        // The gap needs this port empty: a small cross.
+                        var cross = Path()
+                        cross.move(to: CGPoint(x: center.x - 3.5, y: center.y - 3.5))
+                        cross.addLine(to: CGPoint(x: center.x + 3.5, y: center.y + 3.5))
+                        cross.move(to: CGPoint(x: center.x + 3.5, y: center.y - 3.5))
+                        cross.addLine(to: CGPoint(x: center.x - 3.5, y: center.y + 3.5))
+                        context.stroke(cross, with: .color(Self.outline.opacity(0.45)), lineWidth: 1.5)
+                        continue
+                    }
+                    if deadPorts.contains(port) {
+                        // Switched off in this library: a faint ring, so
+                        // it is clear the port exists but is not in use.
+                        context.stroke(dot(3), with: .color(Self.outline.opacity(0.3)), lineWidth: 1)
+                        continue
+                    }
+                    if port == selectedPort {
+                        context.fill(dot(7), with: .color(.accentColor))
+                        context.stroke(dot(12), with: .color(.accentColor), lineWidth: 2)
+                    } else if highlightsTargets {
+                        if validTargets.contains(port) {
+                            context.fill(dot(6), with: .color(Self.good))
                         } else {
-                            context.fill(dot(3.5), with: .color(Self.outline))
+                            context.fill(dot(2.5), with: .color(Self.outline.opacity(0.35)))
                         }
+                    } else {
+                        context.fill(dot(3.5), with: .color(Self.outline))
                     }
                 }
             }
@@ -156,17 +153,14 @@ struct TileCanvas: View {
         let count = model.tile.portsPerEdge
         var best: (port: Port, distance: Double)?
         let deadPorts = model.deadPorts
-        for edge in 0..<HexGeometry.edgeCount {
-            for slot in 0..<count {
-                let port = Port(edge: edge, slot: slot)
-                // A dead port takes no touches, so a tap beside one reaches
-                // the nearest live port instead. One that already holds a
-                // pipe can still be tapped to select that pipe.
-                if deadPorts.contains(port), model.tile.pipe(at: port) == nil { continue }
-                let distance = HexGeometry.position(of: port, portsPerEdge: count).distance(to: point)
-                if distance < (best?.distance ?? 0.3) {
-                    best = (port, distance)
-                }
+        for port in model.tile.shape.ports(portsPerEdge: count) {
+            // A dead port takes no touches, so a tap beside one reaches
+            // the nearest live port instead. One that already holds a
+            // pipe can still be tapped to select that pipe.
+            if deadPorts.contains(port), model.tile.pipe(at: port) == nil { continue }
+            let distance = model.tile.shape.position(of: port, portsPerEdge: count).distance(to: point)
+            if distance < (best?.distance ?? 0.3) {
+                best = (port, distance)
             }
         }
         return best?.port

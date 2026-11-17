@@ -8,13 +8,13 @@ struct TileView: View {
 
     var body: some View {
         Canvas { context, size in
-            let frame = TileFrame(fitting: size, padding: outlineWidth)
-            let hex = TileRenderer.hexPath(in: frame)
+            let frame = TileFrame(fitting: size, padding: outlineWidth, shape: tile.shape)
+            let hex = TileRenderer.outline(of: tile.shape, in: frame)
             context.fill(hex, with: .color(TilePalette.face))
             TileRenderer.draw(tile, in: frame, context: &context)
             context.stroke(hex, with: .color(TilePalette.outline), style: StrokeStyle(lineWidth: outlineWidth, lineJoin: .round))
         }
-        .aspectRatio(1 / HexGeometry.inradius, contentMode: .fit)
+        .aspectRatio(tile.shape.size.width / tile.shape.size.height, contentMode: .fit)
         .accessibilityLabel("Tile \(tile.edgeCode.description)")
     }
 }
