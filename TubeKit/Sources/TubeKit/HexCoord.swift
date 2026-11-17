@@ -66,8 +66,12 @@ public enum Symmetry: String, CaseIterable, Sendable, Codable {
     case third
     /// Looks the same after a sixth of a turn.
     case sixth
+    /// Looks the same after a quarter of a turn. Only a grid of squares
+    /// can keep it.
+    case quarter
 
-    /// The grid transforms that leave a maze with this symmetry unchanged.
+    /// The transforms of a hex grid that leave a maze with this symmetry
+    /// unchanged. Other grids are asked through their `Tiling`.
     public var transforms: [TileTransform] {
         switch self {
         case .none: [.identity]
@@ -75,6 +79,8 @@ public enum Symmetry: String, CaseIterable, Sendable, Codable {
         case .half: [.identity, TileTransform(turns: 3)]
         case .third: [0, 2, 4].map { TileTransform(turns: $0) }
         case .sixth: (0..<6).map { TileTransform(turns: $0) }
+        // A hex grid has no quarter turn.
+        case .quarter: [.identity]
         }
     }
 }

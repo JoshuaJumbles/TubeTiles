@@ -14,6 +14,13 @@ public struct PlacedTile: Hashable, Sendable, Codable {
 
     public init(_ source: Tile, transform: TileTransform = .identity, isGenerated: Bool = false) {
         self.source = source
+        // A placement turns through the tile's own number of sides, so one
+        // given for another shape (the plain "as it is" above all) is read
+        // as the same turns of this one.
+        let sides = source.shape.edgeCount
+        let transform = transform.sides == sides
+            ? transform
+            : TileTransform(turns: transform.turns, mirrored: transform.mirrored, sides: sides)
         self.transform = transform
         self.isGenerated = isGenerated
         oriented = source.transformed(by: transform)

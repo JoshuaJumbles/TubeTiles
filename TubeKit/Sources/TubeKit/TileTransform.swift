@@ -45,6 +45,9 @@ public struct TileTransform: Hashable, Sendable, Codable, CaseIterable {
 
     public static let identity = TileTransform()
 
+    /// Whether this leaves a tile exactly as it is, whatever its shape.
+    public var isIdentity: Bool { turns == 0 && !mirrored }
+
     /// The twelve placements of a hex tile.
     public static let allCases: [TileTransform] = all(sides: HexGeometry.edgeCount)
 

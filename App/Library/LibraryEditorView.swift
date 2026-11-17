@@ -7,13 +7,14 @@ struct LibraryEditorView: View {
     var existing: TileLibrary?
     var onSave: (
         _ name: String, _ note: String, _ portsPerEdge: Int, _ allowedKinds: Set<PipeKind>, _ deadSlots: Set<Int>,
-        _ gauge: PipeGauge
+        _ gauge: PipeGauge, _ shape: TileShape
     ) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var note: String
     @State private var portsPerEdge: Int
+    @State private var shape: TileShape
     @State private var allowedKinds: Set<PipeKind>
     /// Slots switched off on every edge.
     @State private var deadSlots: Set<Int>
@@ -31,13 +32,14 @@ struct LibraryEditorView: View {
         existing: TileLibrary?,
         suggestedName: String = "",
         suggestedPorts: Int = 6,
-        onSave: @escaping (String, String, Int, Set<PipeKind>, Set<Int>, PipeGauge) -> Void
+        onSave: @escaping (String, String, Int, Set<PipeKind>, Set<Int>, PipeGauge, TileShape) -> Void
     ) {
         self.existing = existing
         self.onSave = onSave
         _name = State(initialValue: existing?.name ?? suggestedName)
         _note = State(initialValue: existing?.note ?? "")
         _portsPerEdge = State(initialValue: existing?.portsPerEdge ?? suggestedPorts)
+        _shape = State(initialValue: existing?.shape ?? .hexagon)
         _allowedKinds = State(initialValue: existing?.allowedKinds ?? Set(PipeKind.allCases))
         _deadSlots = State(initialValue: existing?.deadSlots ?? [])
         let gauge = existing?.gauge ?? .standard
@@ -50,15 +52,24 @@ struct LibraryEditorView: View {
     /// A few pipes at the chosen thickness, to judge the look by.
     private var sampleTile: Tile {
         let last = portsPerEdge - 1
-        var tile = Tile(portsPerEdge: portsPerEdge, gauge: gauge, shape: existing?.shape ?? .hexagon)
+        var tile = Tile(portsPerEdge: portsPerEdge, gauge: gauge, shape: shape)
         let middle = last / 2
-        // One straight down with a curve crossing it above and below, so
-        // both the look and the crossings can be judged.
-        let pipes = [
-            Pipe(.bezier, a: Port(edge: 0, slot: middle), b: Port(edge: 3, slot: last - middle)),
-            Pipe(.bezier, a: Port(edge: 5, slot: middle), b: Port(edge: 1, slot: last - middle)),
-            Pipe(.bezier, a: Port(edge: 4, slot: middle), b: Port(edge: 2, slot: last - middle)),
-        ]
+        // One straight down with a curve crossing it, so both the look and
+        // the crossings can be judged. A hexagon has room for two.
+        let pipes: [Pipe]
+        switch shape {
+        case .hexagon:
+            pipes = [
+                Pipe(.bezier, a: Port(edge: 0, slot: middle), b: Port(edge: 3, slot: last - middle)),
+                Pipe(.bezier, a: Port(edge: 5, slot: middle), b: Port(edge: 1, slot: last - middle)),
+                Pipe(.bezier, a: Port(edge: 4, slot: middle), b: Port(edge: 2, slot: last - middle)),
+            ]
+        case .square:
+            pipes = [
+                Pipe(.bezier, a: Port(edge: 0, slot: middle), b: Port(edge: 2, slot: last - middle)),
+                Pipe(.bezier, a: Port(edge: 3, slot: 0), b: Port(edge: 1, slot: 0)),
+            ]
+        }
         for pipe in pipes { try? tile.add(pipe) }
         return tile
     }
@@ -123,14 +134,19 @@ struct LibraryEditorView: View {
 
                 Section {
                     if existing == nil {
+                        Picker("Tile shape", selection: $shape) {
+                            ForEach(TileShape.allCases, id: \.self) { Text($0.title).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
                         Stepper("\(portsPerEdge) ports per edge", value: $portsPerEdge, in: Self.portRange)
                     } else {
+                        LabeledContent("Tile shape", value: shape.title)
                         LabeledContent("Ports per edge", value: "\(portsPerEdge)")
                     }
                 } footer: {
                     Text(existing == nil
-                        ? "Every tile in a library has the same number of ports. This cannot be changed later."
-                        : "The port count is fixed once a library exists.")
+                        ? "Every tile in a library has the same shape and the same number of ports. Neither can be changed later. Mazes grown from the library are laid out to suit the shape."
+                        : "The shape and port count are fixed once a library exists.")
                 }
 
                 Section {
@@ -166,7 +182,7 @@ struct LibraryEditorView: View {
                         TileView(tile: sampleTile)
                             .frame(width: 104)
                             // Redrawn for every change of thickness or ports.
-                            .id("\(portsPerEdge)-\(pipeWidth)-\(wall)")
+                            .id("\(shape)-\(portsPerEdge)-\(pipeWidth)-\(wall)")
                         VStack(alignment: .leading, spacing: 10) {
                             VStack(alignment: .leading, spacing: 0) {
                                 Text("Width").font(.subheadline)
@@ -251,7 +267,7 @@ struct LibraryEditorView: View {
                     Button(existing == nil ? "Create" : "Save") {
                         onSave(
                             trimmedName, note.trimmingCharacters(in: .whitespacesAndNewlines),
-                            portsPerEdge, allowedKinds, validDeadSlots, gauge
+                            portsPerEdge, allowedKinds, validDeadSlots, gauge, shape
                         )
                         dismiss()
                     }

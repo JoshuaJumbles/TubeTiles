@@ -85,11 +85,11 @@ final class LibraryModel {
     @discardableResult
     func create(
         name: String, note: String, portsPerEdge: Int, allowedKinds: Set<PipeKind>, deadSlots: Set<Int> = [],
-        gauge: PipeGauge = .standard
+        gauge: PipeGauge = .standard, shape: TileShape = .hexagon
     ) throws -> TileLibrary {
         let library = TileLibrary(
             name: name, note: note, portsPerEdge: portsPerEdge, allowedKinds: allowedKinds, deadSlots: deadSlots,
-            gauge: gauge
+            gauge: gauge, shape: shape
         )
         try commit(library)
         select(library.id)

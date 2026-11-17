@@ -203,6 +203,16 @@ final class GeneratorModel {
     var portsPerEdge: Int { maze.portsPerEdge }
     var radius: Int { maze.radius }
     var openCells: [HexCoord] { maze.openCells }
+    /// The kind of tile the maze takes, as in "hexagon tiles with 6 ports
+    /// per edge".
+    var mazeDescription: String {
+        "\(maze.tiling.shape(of: .origin).tilesTitle) with \(portsPerEdge) ports per edge"
+    }
+
+    static func describe(_ library: TileLibrary) -> String {
+        "\(library.shape.tilesTitle) with \(library.portsPerEdge) ports per edge"
+    }
+
     /// Whether a library's tiles could go in this maze: the same shape of
     /// tile and the same number of ports.
     private func suits(_ library: TileLibrary) -> Bool {
@@ -425,7 +435,7 @@ final class GeneratorModel {
             reset(portsPerEdge: current.portsPerEdge, radius: radius)
         } else {
             warnsOfPortCount = true
-            message = "This maze has \(portsPerEdge) ports per edge. Clear it to use \u{201C}\(current.name)\u{201D}, which has \(current.portsPerEdge)."
+            message = "This maze has \(mazeDescription). Clear it to use \u{201C}\(current.name)\u{201D}, which has \(Self.describe(current))."
         }
     }
 
@@ -438,11 +448,14 @@ final class GeneratorModel {
     private func reset(portsPerEdge: Int, radius: Int) {
         stop()
         let openings = maze.openings
-        let sameShape = portsPerEdge == maze.portsPerEdge && radius == maze.radius
+        let tiling = Tiling(shape: library.current.shape)
+        let sameShape = portsPerEdge == maze.portsPerEdge && radius == maze.radius && tiling == maze.tiling
         maze = Maze(
             portsPerEdge: portsPerEdge, radius: radius, mask: maze.mask, gauge: library.current.gauge,
-            tiling: Tiling(shape: library.current.shape)
+            tiling: tiling
         )
+        // A different grid may not have the symmetry that was chosen.
+        if !tiling.symmetries.contains(symmetry) { symmetry = .none }
         // Clearing the tiles keeps the entrance and exit; a different size
         // or port count has a different outline, so they are dropped.
         if sameShape {
@@ -734,7 +747,7 @@ final class GeneratorModel {
     /// Sends a cell to the editor so a tile can be drawn to fit it.
     private func design(at coord: HexCoord) {
         guard activeLibrary != nil else {
-            message = "This maze has \(portsPerEdge) ports per edge and the library has \(library.current.portsPerEdge), so a new tile would not fit."
+            message = "This maze has \(mazeDescription) and the library has \(Self.describe(library.current)), so a new tile would not fit."
             return
         }
         guard let brief = maze.brief(at: coord) else { return }

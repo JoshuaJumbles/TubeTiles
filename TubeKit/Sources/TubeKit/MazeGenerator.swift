@@ -304,7 +304,19 @@ public struct MazeGenerator: Sendable {
                 hasFreeEdge = true
             }
         }
-        return hasFreeEdge || fixedPorts % 2 == (maze.goals.contains(coord) ? 1 : 0)
+        if hasFreeEdge { return true }
+        guard fixedPorts % 2 == (maze.goals.contains(coord) ? 1 : 0) else { return false }
+        // Boxed in on every side with the right number of ends. That is
+        // still no promise: two pipes arriving side by side on one edge
+        // with nothing else to join may have no legal way to meet. Only
+        // making the tile tells, and with nothing to choose it is quick.
+        for _ in 0..<2 {
+            if let made = synthesize(for: maze, at: coord, symmetry: symmetry, growth: 0, using: &generator),
+               maze.placing(made, at: coord, symmetry: symmetry) != nil {
+                return true
+            }
+        }
+        return false
     }
 
     /// Whether placing at `coord` left any neighbouring open cell unfillable.
@@ -424,6 +436,17 @@ public struct MazeGenerator: Sendable {
         let ordinary = neighbours.filter { !maze.goals.contains($0) }
         if !ordinary.isEmpty { neighbours = ordinary }
         guard !neighbours.isEmpty else { return .stuck(target) }
+        // Sometimes the trouble is one step further out: the tiles next to
+        // the cell are themselves pinned by their neighbours into sending an
+        // odd number of pipes into a pocket that needs an even one, and they
+        // regrow the same way however often they are cleared. So now and
+        // then, take out the tiles around those as well.
+        if Double.random(in: 0..<1, using: &generator) < 0.3 {
+            let wider = Set(neighbours.flatMap { near in
+                maze.edges(at: near).map { maze.tiling.neighbour(of: near, across: $0).cell }
+            }).filter { maze.cells[$0] != nil && !maze.goals.contains($0) }
+            neighbours = Array(Set(neighbours).union(wider)).sorted()
+        }
         for neighbour in neighbours {
             maze.remove(at: neighbour, symmetry: symmetry)
         }

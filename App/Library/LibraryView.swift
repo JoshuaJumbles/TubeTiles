@@ -131,13 +131,13 @@ struct LibraryView: View {
                     presenting: incoming
                 ) { found in
                     Button("Add as a new library") { addIncoming() }
-                    if found.portsPerEdge == current.portsPerEdge {
+                    if found.portsPerEdge == current.portsPerEdge, found.shape == current.shape {
                         Button("Add its tiles to \u{201C}\(current.name)\u{201D}") { mergeIncoming(into: current) }
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: { found in
-                    Text("\(Self.count(found.tiles.count)), \(found.portsPerEdge) ports per edge."
-                        + (found.portsPerEdge == current.portsPerEdge
+                    Text("\(Self.count(found.tiles.count)), \(found.shape.tilesTitle), \(found.portsPerEdge) ports per edge."
+                        + (found.portsPerEdge == current.portsPerEdge && found.shape == current.shape
                             ? " Adding its tiles to \u{201C}\(current.name)\u{201D} leaves out any already there and keeps this library\u{2019}s rules."
                             : ""))
                 }
@@ -191,14 +191,14 @@ struct LibraryView: View {
                     existing: nil,
                     suggestedName: library.unusedName("New library"),
                     suggestedPorts: current.portsPerEdge
-                ) { name, note, ports, kinds, dead, gauge in
+                ) { name, note, ports, kinds, dead, gauge, shape in
                     _ = try? library.create(
                         name: name, note: note, portsPerEdge: ports, allowedKinds: kinds, deadSlots: dead,
-                        gauge: gauge
+                        gauge: gauge, shape: shape
                     )
                 }
             case let .existing(target):
-                LibraryEditorView(existing: target) { name, note, _, kinds, dead, gauge in
+                LibraryEditorView(existing: target) { name, note, _, kinds, dead, gauge, _ in
                     try? library.update(
                         id: target.id, name: name, note: note, allowedKinds: kinds, deadSlots: dead, gauge: gauge
                     )
@@ -364,9 +364,13 @@ struct LibraryView: View {
     }
 
     private func portSummary(for tiles: TileLibrary) -> String {
-        guard !tiles.deadPorts.isEmpty else { return "\(tiles.portsPerEdge) ports per edge" }
-        guard let live = tiles.liveSlotCount else { return "\(tiles.portsPerEdge) ports per edge, some switched off" }
-        return "\(live) of \(tiles.portsPerEdge) ports per edge in use"
+        // Hexagons are the usual shape, so only another one is named.
+        let shape = tiles.shape == .hexagon ? "" : tiles.shape.tilesTitle.capitalizedFirst + ", "
+        guard !tiles.deadPorts.isEmpty else { return shape + "\(tiles.portsPerEdge) ports per edge" }
+        guard let live = tiles.liveSlotCount else {
+            return shape + "\(tiles.portsPerEdge) ports per edge, some switched off"
+        }
+        return shape + "\(live) of \(tiles.portsPerEdge) ports per edge in use"
     }
 
     private func groupHeader(_ title: String, badge: String?) -> some View {

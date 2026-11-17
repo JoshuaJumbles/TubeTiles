@@ -55,9 +55,10 @@ struct EditorView: View {
             .padding(.horizontal, 16)
 
             TileCanvas(model: model)
-                // A hex never reaches the corners of its area, so the tool
-                // button sits there without covering any of the tile: bottom
-                // right, where a thumb reaches it.
+                // The tool button sits in the bottom right corner, where a
+                // thumb reaches it. A hexagon never reaches the corners of
+                // its area, and other shapes are drawn small enough to leave
+                // them clear.
                 .overlay(alignment: .bottomTrailing) {
                     toolButton.padding(10)
                 }

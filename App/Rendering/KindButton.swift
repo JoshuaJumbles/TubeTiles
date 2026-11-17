@@ -1,6 +1,24 @@
 import SwiftUI
 import TubeKit
 
+extension TileShape {
+    /// The shape's name, for a choice of shapes.
+    var title: String {
+        switch self {
+        case .hexagon: "Hexagon"
+        case .square: "Square"
+        }
+    }
+
+    /// What a library of this shape holds, as in "square tiles".
+    var tilesTitle: String {
+        switch self {
+        case .hexagon: "hexagon tiles"
+        case .square: "square tiles"
+        }
+    }
+}
+
 extension PipeKind {
     /// A short name for buttons and lists.
     var shortTitle: String {
@@ -111,5 +129,12 @@ struct KindButton: View {
         ToolCell(title: kind.shortTitle, isSelected: isSelected, action: action) {
             KindIcon(kind: kind)
         }
+    }
+}
+
+extension String {
+    /// The same text with its first letter in upper case.
+    var capitalizedFirst: String {
+        prefix(1).uppercased() + dropFirst()
     }
 }

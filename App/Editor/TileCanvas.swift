@@ -16,7 +16,9 @@ struct TileCanvas: View {
     var body: some View {
         GeometryReader { proxy in
             let tile = model.tile
-            let frame = TileFrame(fitting: proxy.size, padding: 30, shape: tile.shape)
+            // A square fills the corners a hexagon leaves free, so it is drawn
+            // a little smaller to keep clear of the buttons that sit there.
+            let frame = TileFrame(fitting: proxy.size, padding: tile.shape == .hexagon ? 30 : 40, shape: tile.shape)
             let style = model.style
             let selectedPort = model.selectedPort
             let selectedPipe = model.selectedPipe

@@ -75,6 +75,19 @@ enum SampleData {
             try? model.save(tile, to: small?.id)
         }
 
+        // A second shape.
+        let squares = try? model.create(
+            name: "Squares", note: "Square tiles.", portsPerEdge: 4,
+            allowedKinds: [.bezier, .corner, .roomSmall, .endSmall, .endMedium], shape: .square
+        )
+        for index in 0..<14 {
+            var tile = Tile(portsPerEdge: 4, shape: .square)
+            for _ in 0..<(2 + index % 4) {
+                tile.addRandomPipe(kinds: [.bezier, .bezier, .corner], using: &generator)
+            }
+            if !tile.pipes.isEmpty { try? model.save(tile, to: squares?.id) }
+        }
+
         if let mixed { model.select(mixed.id) }
         try? model.deleteLibrary(id: placeholder)
         return model
