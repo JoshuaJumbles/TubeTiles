@@ -124,14 +124,20 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
             // A symmetry the grid cannot keep falls back to none.
             if !tiling.symmetries.contains(symmetry) { #expect(transforms.count == 1) }
             for transform in transforms {
-                #expect(transform.sides == tiling.shape(of: .origin).edgeCount)
                 for cell in tiling.cells(radius: 3) {
                     let moved = tiling.transformed(cell, by: transform)
                     #expect(close(tiling.center(of: moved), transform.apply(to: tiling.center(of: cell))))
                     #expect(tiling.ring(of: moved) == tiling.ring(of: cell))
                 }
             }
-            #expect(tiling.stabilizer(of: .origin, symmetry: symmetry).count == transforms.count - 1)
+            // A tile is turned through its own number of sides.
+            let sides = tiling.images(of: .origin, under: symmetry).map(\.tile.sides)
+            #expect(sides.allSatisfy { $0 == tiling.shape(of: .origin).edgeCount })
+            // Where the centre of the grid is a cell, every symmetry maps
+            // that cell onto itself. On Cairo tiles the centre is a corner,
+            // and no cell is mapped onto itself.
+            let fixed = tiling.stabilizer(of: .origin, symmetry: symmetry).count
+            #expect(fixed == (tiling == .cairo ? 0 : transforms.count - 1))
         }
     }
 }
@@ -361,8 +367,7 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
         let tiling = Tiling.cairo
         let turns = Set(tiling.cells(radius: 1).map { Int((tiling.turn(of: $0) / (.pi / 2)).rounded()) })
         #expect(turns == [0, 1, 2, 3])
-        #expect(tiling.cells(radius: 0).count == 2)
-        #expect(tiling.symmetries == [Symmetry.none])
+        #expect(tiling.cells(radius: 0).count == 8)
     }
 
     @Test func pipesStayInsideThePentagon() throws {
@@ -421,7 +426,7 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
         let runs = 6
         for seed in 0..<runs {
             var maze = Maze(portsPerEdge: ports, radius: 2, tiling: .cairo)
-            #expect(maze.cellCount == 50)
+            #expect(maze.cellCount == 72)
             var random = SeededGenerator(seed: UInt64(seed))
             if generator.fill(&maze, symmetry: .none, using: &random) { sealed += 1 }
             for (coord, placed) in maze.cells {
@@ -488,6 +493,78 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
             #expect(inside)
         }
         #expect(sealed >= 4)
+    }
+
+    @Test func theGridTurnsAQuarterAboutACornerBetweenFourPentagons() {
+        let tiling = Tiling.cairo
+        #expect(tiling.symmetries == [.none, .half, .quarter])
+        // Four pentagons have a corner at the centre.
+        let atCentre = tiling.cells(radius: 0).filter { cell in
+            TileShape.cairo.corners.contains { tiling.frame(of: cell).place($0).distance(to: .zero) < 1e-9 }
+        }
+        #expect(atCentre.count == 4)
+
+        let quarter = TileTransform(turns: 1, sides: 4)
+        for cell in tiling.cells(radius: 3) {
+            let image = tiling.transformed(cell, by: quarter)
+            #expect(image != cell)
+            #expect(tiling.ring(of: image) == tiling.ring(of: cell))
+            // The image is the cell turned a quarter clockwise about the
+            // centre: every corner lands on the matching corner.
+            for corner in TileShape.cairo.corners {
+                let from = tiling.frame(of: cell).place(corner)
+                let to = tiling.frame(of: image).place(corner)
+                #expect(to.distance(to: Point(x: -from.y, y: from.x)) < 1e-9)
+            }
+            // Neighbours go with it, across the same edges.
+            for edge in 0..<5 {
+                let before = tiling.neighbour(of: cell, across: edge)
+                let after = tiling.neighbour(of: image, across: edge)
+                #expect(after.cell == tiling.transformed(before.cell, by: quarter))
+                #expect(after.edge == before.edge)
+            }
+            var round = cell
+            for _ in 0..<4 { round = tiling.transformed(round, by: quarter) }
+            #expect(round == cell)
+            #expect(tiling.transformed(cell, by: TileTransform(turns: 2, sides: 4))
+                == tiling.transformed(image, by: quarter))
+            #expect(tiling.stabilizer(of: cell, symmetry: .quarter).isEmpty)
+        }
+    }
+
+    @Test(arguments: [Symmetry.half, .quarter])
+    func cairoMazesKeepTheirTurns(symmetry: Symmetry) {
+        let tiling = Tiling.cairo
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        let turns = tiling.transforms(for: symmetry).dropFirst()
+        #expect(turns.count == (symmetry == .quarter ? 3 : 1))
+        var sealed = 0
+        let runs = 6
+        for seed in 0..<runs {
+            var maze = Maze(portsPerEdge: 4, radius: 2, tiling: tiling)
+            var random = SeededGenerator(seed: UInt64(seed))
+            if generator.fill(&maze, symmetry: symmetry, using: &random) { sealed += 1 }
+            #expect(!maze.cells.isEmpty)
+            for (coord, placed) in maze.cells {
+                #expect(maze.fits(placed.code, at: coord))
+                for turn in turns {
+                    // The same tile, the same way up, in a cell that is
+                    // itself turned.
+                    let image = maze.cells[tiling.transformed(coord, by: turn)]
+                    #expect(image?.oriented.pipes == placed.oriented.pipes)
+                }
+            }
+            guard maze.isSealed else { continue }
+            LoopMerger(generator: generator).mergeAll(&maze, symmetry: symmetry, using: &random)
+            #expect(maze.isSealed)
+            for (coord, placed) in maze.cells {
+                for turn in turns {
+                    let image = maze.cells[tiling.transformed(coord, by: turn)]
+                    #expect(image.map { Set($0.oriented.pipes) } == Set(placed.oriented.pipes))
+                }
+            }
+        }
+        #expect(sealed >= runs - 1)
     }
 
     @Test func goalsWorkOnCairoTiles() {
