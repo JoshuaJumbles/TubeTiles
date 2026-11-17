@@ -1,5 +1,45 @@
 import Foundation
 
+/// Where a cell sits in the plane: its centre, and how far it is turned
+/// from the way its shape is drawn. Everything inside a cell (ports, pipes,
+/// corners) is worked out as if the cell were upright at the origin and then
+/// put in place through its frame.
+public struct CellFrame: Hashable, Sendable {
+    public var center: Point
+    /// Clockwise turn on screen, in radians.
+    public var angle: Double
+
+    public init(center: Point, angle: Double = 0) {
+        self.center = center
+        self.angle = angle
+    }
+
+    /// Where a point of the cell falls in the plane.
+    public func place(_ local: Point) -> Point {
+        center + turn(local)
+    }
+
+    /// A direction inside the cell, as it points in the plane.
+    public func turn(_ direction: Point) -> Point {
+        // Upright cells are left exactly as they are, not turned by nothing.
+        guard angle != 0 else { return direction }
+        return Point(
+            x: direction.x * cos(angle) - direction.y * sin(angle),
+            y: direction.x * sin(angle) + direction.y * cos(angle)
+        )
+    }
+
+    /// Where a point of the plane falls inside the cell.
+    public func local(_ point: Point) -> Point {
+        let offset = point - center
+        guard angle != 0 else { return offset }
+        return Point(
+            x: offset.x * cos(angle) + offset.y * sin(angle),
+            y: -offset.x * sin(angle) + offset.y * cos(angle)
+        )
+    }
+}
+
 /// How tiles are laid out to cover the plane: where each cell sits, what
 /// shape it is, and which edge of which neighbour lies across each of its
 /// edges.
@@ -38,6 +78,19 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         // One unit a cell: `q` counts columns to the right, `r` rows down.
         case .square: Point(x: Double(cell.q), y: Double(cell.r))
         }
+    }
+
+    /// How far a cell is turned from the way its shape is drawn, clockwise
+    /// in radians. Every cell is upright in the tilings so far.
+    public func turn(of cell: HexCoord) -> Double {
+        switch self {
+        case .hexagonal, .square: 0
+        }
+    }
+
+    /// Where a cell sits and how it is turned.
+    public func frame(of cell: HexCoord) -> CellFrame {
+        CellFrame(center: center(of: cell), angle: turn(of: cell))
     }
 
     /// The cell on the other side of an edge, and which of its edges that
@@ -182,9 +235,23 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         }
     }
 
-    /// The grid transforms, other than doing nothing, under which a cell
-    /// stays where it is. A tile there has to look the same under each.
+    /// Every cell that has to match `cell` for a maze to keep a symmetry,
+    /// starting with the cell itself, and how the tile in `cell` has to be
+    /// turned or flipped to be the tile in each.
+    ///
+    /// Moving a cell and turning its tile are separate things. On a grid of
+    /// upright cells a quarter turn of the maze moves a tile and turns it a
+    /// quarter. On a grid whose cells are themselves turned, the same move
+    /// can land a tile in a cell that is already a quarter round, so the
+    /// tile is not turned at all.
+    public func images(of cell: HexCoord, under symmetry: Symmetry) -> [(cell: HexCoord, tile: TileTransform)] {
+        transforms(for: symmetry).map { (transformed(cell, by: $0), $0) }
+    }
+
+    /// The ways a tile has to look the same as itself for its cell to keep
+    /// a symmetry: one for each image of the cell, other than the first,
+    /// that is the cell itself.
     public func stabilizer(of cell: HexCoord, symmetry: Symmetry) -> [TileTransform] {
-        transforms(for: symmetry).filter { ($0.turns != 0 || $0.mirrored) && transformed(cell, by: $0) == cell }
+        images(of: cell, under: symmetry).dropFirst().filter { $0.cell == cell }.map(\.tile)
     }
 }

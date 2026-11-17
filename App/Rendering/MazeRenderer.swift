@@ -48,7 +48,8 @@ struct MazeLayout {
     }
 
     func frame(for coord: HexCoord) -> TileFrame {
-        TileFrame(center: point(tiling.center(of: coord)), scale: scale)
+        let cell = tiling.frame(of: coord)
+        return TileFrame(center: point(cell.center), scale: scale, angle: cell.angle)
     }
 
     /// The outline of a cell in the view.
@@ -66,8 +67,8 @@ struct MazeLayout {
     func outlinePort(at point: CGPoint, in maze: Maze, allowed: (PortRef) -> Bool = { _ in true }) -> PortRef? {
         let target = gridPoint(point)
         func position(_ ref: PortRef) -> Point {
-            tiling.center(of: ref.coord)
-                + tiling.shape(of: ref.coord).position(of: ref.port, portsPerEdge: maze.portsPerEdge)
+            tiling.frame(of: ref.coord)
+                .place(tiling.shape(of: ref.coord).position(of: ref.port, portsPerEdge: maze.portsPerEdge))
         }
         let nearest = maze.outlinePorts.filter(allowed).min { position($0).distance(to: target) < position($1).distance(to: target) }
         guard let nearest, position(nearest).distance(to: target) <= 0.6 else { return nil }
@@ -82,7 +83,7 @@ struct MazeLayout {
         guard let nearest = maze.coords.min(by: { distance($0) < distance($1) }),
               distance(nearest) <= tiling.shape(of: nearest).circumradius
         else { return nil }
-        return (nearest, target - tiling.center(of: nearest))
+        return (nearest, tiling.frame(of: nearest).local(target))
     }
 }
 

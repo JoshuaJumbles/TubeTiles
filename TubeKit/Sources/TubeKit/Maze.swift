@@ -124,6 +124,11 @@ public struct Maze: Hashable, Sendable, Codable {
         0..<tiling.shape(of: coord).edgeCount
     }
 
+    /// Where a cell sits in the plane and how it is turned.
+    public func frame(of coord: HexCoord) -> CellFrame {
+        tiling.frame(of: coord)
+    }
+
     /// Centre of a cell, in units of a tile's edge.
     public func center(of coord: HexCoord) -> Point {
         tiling.center(of: coord)
@@ -247,7 +252,7 @@ public struct Maze: Hashable, Sendable, Codable {
     /// inside the mask.
     public func staysInside(_ pipe: Pipe, at coord: HexCoord) -> Bool {
         guard let mask, isOnBorder(coord) else { return true }
-        return MaskedRegion.staysInside(pipe, from: center(of: coord), mask: mask, style: style(at: coord))
+        return MaskedRegion.staysInside(pipe, in: frame(of: coord), mask: mask, style: style(at: coord))
     }
 
     /// Whether every pipe of `tile`, placed at `coord`, stays inside the
@@ -368,9 +373,8 @@ public struct Maze: Hashable, Sendable, Codable {
         guard tile.source.portsPerEdge == portsPerEdge else { return nil }
         var next = self
         var targets: [HexCoord] = []
-        for transform in tiling.transforms(for: symmetry) {
-            let target = tiling.transformed(coord, by: transform)
-            let image = tile.transformed(by: transform)
+        for (target, turn) in tiling.images(of: coord, under: symmetry) {
+            let image = tile.transformed(by: turn)
             guard contains(target), cells[target] == nil else { return nil }
             if let earlier = next.cells[target] {
                 // A cell that maps onto itself needs a tile that does too.
@@ -391,8 +395,7 @@ public struct Maze: Hashable, Sendable, Codable {
     /// The cells `placing` would fill for a tile at `coord`.
     public func images(of coord: HexCoord, symmetry: Symmetry) -> [HexCoord] {
         var seen: [HexCoord] = []
-        for transform in tiling.transforms(for: symmetry) {
-            let target = tiling.transformed(coord, by: transform)
+        for (target, _) in tiling.images(of: coord, under: symmetry) {
             if !seen.contains(target) { seen.append(target) }
         }
         return seen

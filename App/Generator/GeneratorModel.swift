@@ -500,10 +500,12 @@ final class GeneratorModel {
     /// opposite it.
     func addOpposedOpenings() {
         guard let entrance = maze.outlinePorts.filter(allowsOpening).randomElement(using: &random) else { return }
-        guard let halfTurn = maze.tiling.transforms(for: .half).last else { return }
+        // Half a turn of the whole maze from the entrance.
+        let images = maze.tiling.images(of: entrance.coord, under: .half)
+        guard images.count == 2, let opposite = images.last else { return }
         let exit = PortRef(
-            coord: maze.tiling.transformed(entrance.coord, by: halfTurn),
-            port: halfTurn.apply(to: entrance.port, portsPerEdge: portsPerEdge)
+            coord: opposite.cell,
+            port: opposite.tile.apply(to: entrance.port, portsPerEdge: portsPerEdge)
         )
         applyOpenings([entrance, exit])
     }
