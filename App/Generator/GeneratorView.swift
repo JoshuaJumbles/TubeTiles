@@ -10,6 +10,7 @@ struct GeneratorView: View {
     @State private var showsMazes = false
     @State private var showsPreview = false
     @State private var showsTools = false
+    @State private var showsBuildSheet = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -85,10 +86,17 @@ struct GeneratorView: View {
         }
         .overlay(alignment: .topTrailing) {
             VStack(spacing: 8) {
-                ShareLink(item: model.drawing, preview: SharePreview("TubeTiles maze.svg")) {
+                Menu {
+                    ShareLink(item: model.drawing, preview: SharePreview("TubeTiles maze.svg")) {
+                        Label("Drawing (SVG)", systemImage: "scribble.variable")
+                    }
+                    Button { showsBuildSheet = true } label: {
+                        Label("Build sheet (PDF)", systemImage: "list.number")
+                    }
+                } label: {
                     cornerButton("square.and.arrow.up")
                 }
-                .accessibilityLabel("Export SVG")
+                .accessibilityLabel("Export")
 
                 Button { showsPreview = true } label: {
                     cornerButton("eye")
@@ -99,6 +107,9 @@ struct GeneratorView: View {
             .opacity(model.maze.cells.isEmpty ? 0.4 : 1)
             .padding(.top, 6)
             .padding(.trailing, 10)
+        }
+        .sheet(isPresented: $showsBuildSheet) {
+            BuildSheetView(maze: model.maze)
         }
         .fullScreenCover(isPresented: $showsPreview) {
             MazePreview(maze: model.maze)
