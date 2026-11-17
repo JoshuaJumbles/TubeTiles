@@ -201,6 +201,42 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
         return copy
     }
 
+    // MARK: Bringing in another library
+
+    /// Adds the tiles of `other` that this library does not already have,
+    /// each as a tile of its own. A tile counts as already here if one of
+    /// this library's draws the same pipes, as it stands or turned or
+    /// flipped. Returns how many were added and how many were passed over.
+    ///
+    /// The other library's rules are not taken on. Its tiles are drawn at
+    /// this library's pipe thickness, like every tile saved here. Nothing is
+    /// added if the port counts differ.
+    @discardableResult
+    public mutating func merge(_ other: TileLibrary) -> (added: Int, skipped: Int) {
+        guard other.portsPerEdge == portsPerEdge else { return (0, other.tiles.count) }
+        var added = 0
+        var skipped = 0
+        for tile in other.tiles where !tile.pipes.isEmpty {
+            var copy = tile
+            copy.id = UUID()
+            if twin(of: copy) == nil {
+                save(copy)
+                added += 1
+            } else {
+                skipped += 1
+            }
+        }
+        return (added, skipped)
+    }
+
+    /// This library under a new identity and name, tiles and rules intact,
+    /// for adding a library that came from somewhere else.
+    public func adopted(named name: String) -> TileLibrary {
+        var copy = duplicated(named: name)
+        copy.id = UUID()
+        return copy
+    }
+
     // MARK: Duplicates
 
     /// A stored tile that draws exactly the pipes of `tile`, as it stands or
