@@ -80,10 +80,13 @@ struct MazeLayout {
     func cell(at point: CGPoint, in maze: Maze) -> (coord: HexCoord, local: Point)? {
         let target = gridPoint(point)
         func distance(_ coord: HexCoord) -> Double { tiling.center(of: coord).distance(to: target) }
-        guard let nearest = maze.coords.min(by: { distance($0) < distance($1) }),
-              distance(nearest) <= tiling.shape(of: nearest).circumradius
-        else { return nil }
-        return (nearest, tiling.frame(of: nearest).local(target))
+        // The cell whose outline holds the point. Only the few nearest need
+        // asking, and the nearest of all is the answer for regular shapes.
+        let near = maze.coords.sorted { distance($0) < distance($1) }.prefix(4)
+        guard let found = near.first(where: { coord in
+            tiling.shape(of: coord).contains(tiling.frame(of: coord).local(target))
+        }) else { return nil }
+        return (found, tiling.frame(of: found).local(target))
     }
 }
 

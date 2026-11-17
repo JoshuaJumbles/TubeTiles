@@ -164,7 +164,7 @@ struct LibraryView: View {
         .sheet(item: $selectedTile) { tile in
             TileDetailView(
                 tile: tile,
-                variantCount: current.tilesByProfile[tile.edgeCode.canonical]?.count ?? 1,
+                variantCount: current.tilesByProfile[tile.profile]?.count ?? 1,
                 destinations: library.destinations(from: current),
                 onOpen: { asCopy in
                     selectedTile = nil

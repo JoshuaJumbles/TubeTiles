@@ -120,6 +120,13 @@ public struct Tile: Identifiable, Hashable, Sendable, Codable {
         return shape.ports(portsPerEdge: portsPerEdge).filter { !occupied.contains($0) }
     }
 
+    /// The tile's edge code in a standard orientation. Two tiles the
+    /// generator can use interchangeably, after turning or flipping one of
+    /// them as far as their shape allows, share a profile.
+    public var profile: EdgeCode {
+        edgeCode.canonical(under: shape.transforms)
+    }
+
     public var edgeCode: EdgeCode {
         EdgeCode(portsPerEdge: portsPerEdge, edgeCount: shape.edgeCount, occupied: occupiedPorts)
     }

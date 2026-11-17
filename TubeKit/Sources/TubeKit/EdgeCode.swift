@@ -81,6 +81,14 @@ public struct EdgeCode: Hashable, Sendable, Codable, CustomStringConvertible {
             .min { $0.values.lexicographicallyPrecedes($1.values) } ?? self
     }
 
+    /// The same profile in a standard orientation for a tile that can only
+    /// be placed in the given ways: the smallest of those placements.
+    public func canonical(under transforms: [TileTransform]) -> EdgeCode {
+        transforms
+            .map { transformed(by: $0) }
+            .min { $0.values.lexicographicallyPrecedes($1.values) } ?? self
+    }
+
     /// A single edge's pattern, ignoring direction: the smaller of the value
     /// and its bit reversal. A tile can show either by being flipped.
     public static func pattern(_ value: Int, width: Int) -> Int {
