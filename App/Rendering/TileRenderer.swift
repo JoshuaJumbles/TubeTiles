@@ -6,10 +6,14 @@ struct TileFrame {
     var center: CGPoint
     /// View points per tile unit: the length of a tile's edge.
     var scale: CGFloat
+    /// How far the tile is turned, clockwise in radians. A tile on its own
+    /// is upright; a cell of a maze may not be.
+    var angle: Double = 0
 
-    init(center: CGPoint, scale: CGFloat) {
+    init(center: CGPoint, scale: CGFloat, angle: Double = 0) {
         self.center = center
         self.scale = scale
+        self.angle = angle
     }
 
     /// The largest frame that fits a whole tile of the given shape inside
@@ -23,11 +27,13 @@ struct TileFrame {
     }
 
     func point(_ point: Point) -> CGPoint {
-        CGPoint(x: center.x + point.x * scale, y: center.y + point.y * scale)
+        let turned = CellFrame(center: .zero, angle: angle).turn(point)
+        return CGPoint(x: center.x + turned.x * scale, y: center.y + turned.y * scale)
     }
 
     func tilePoint(_ point: CGPoint) -> Point {
-        Point(x: (point.x - center.x) / scale, y: (point.y - center.y) / scale)
+        CellFrame(center: .zero, angle: angle)
+            .local(Point(x: (point.x - center.x) / scale, y: (point.y - center.y) / scale))
     }
 }
 

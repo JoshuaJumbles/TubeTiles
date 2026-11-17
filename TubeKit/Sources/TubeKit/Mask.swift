@@ -123,7 +123,7 @@ struct MaskedRegion: Hashable, Sendable {
                 return isLive(other.coord, other.port)
             }
             let position = tiling.shape(of: coord).position(of: port, portsPerEdge: count)
-            return mask.contains(tiling.center(of: coord) + position, inset: inset)
+            return mask.contains(tiling.frame(of: coord).place(position), inset: inset)
         }
 
         var bits: [HexCoord: [Int]] = [:]
@@ -138,7 +138,7 @@ struct MaskedRegion: Hashable, Sendable {
         /// Cells the mask's edge passes through or near.
         func touchesEdge(_ coord: HexCoord) -> Bool {
             bits[coord]?.contains { $0 != full } ?? false || tiling.shape(of: coord).corners.contains { corner in
-                !mask.contains(tiling.center(of: coord) + corner, inset: inset)
+                !mask.contains(tiling.frame(of: coord).place(corner), inset: inset)
             }
         }
         let edgeCells = all.filter(touchesEdge)
@@ -155,7 +155,7 @@ struct MaskedRegion: Hashable, Sendable {
                 for kind in [PipeKind.bezier, .corner] {
                     let pipe = Pipe(kind, a: port, b: partner)
                     if PlacementRules.error(adding: pipe, to: blank, coverage: coverage) == nil,
-                       Self.staysInside(pipe, from: tiling.center(of: coord), mask: mask, style: style(coord)) {
+                       Self.staysInside(pipe, in: tiling.frame(of: coord), mask: mask, style: style(coord)) {
                         return true
                     }
                 }
@@ -195,9 +195,9 @@ struct MaskedRegion: Hashable, Sendable {
         }
     }
 
-    /// Whether `pipe`, drawn in a cell centred on `origin`, keeps its whole
+    /// Whether `pipe`, drawn in a cell placed by `frame`, keeps its whole
     /// width inside the mask.
-    static func staysInside(_ pipe: Pipe, from origin: Point, mask: Mask, style: TileStyle) -> Bool {
+    static func staysInside(_ pipe: Pipe, in frame: CellFrame, mask: Mask, style: TileStyle) -> Bool {
         let inset = style.pipeWidth / 2
         let shape = PipeShape(pipe, style: style)
         for segment in shape.segments {
@@ -210,9 +210,9 @@ struct MaskedRegion: Hashable, Sendable {
             case .cubic:
                 points = segment.flattened(steps: 12)
             }
-            for point in points where !mask.contains(origin + point, inset: inset) { return false }
+            for point in points where !mask.contains(frame.place(point), inset: inset) { return false }
         }
-        if let room = shape.room, !mask.contains(origin + room.center, inset: room.diameter / 2) {
+        if let room = shape.room, !mask.contains(frame.place(room.center), inset: room.diameter / 2) {
             return false
         }
         return true

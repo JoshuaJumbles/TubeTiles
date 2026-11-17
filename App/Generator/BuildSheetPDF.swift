@@ -34,9 +34,12 @@ enum BuildSheetPDF {
     private struct Frame {
         var center: CGPoint
         var scale: CGFloat
+        /// How far the tile is turned, clockwise in radians.
+        var angle: Double = 0
 
         func point(_ point: Point) -> CGPoint {
-            CGPoint(x: center.x + point.x * scale, y: center.y + point.y * scale)
+            let turned = CellFrame(center: .zero, angle: angle).turn(point)
+            return CGPoint(x: center.x + turned.x * scale, y: center.y + turned.y * scale)
         }
 
         func outline(of shape: TileShape) -> CGPath {
@@ -104,8 +107,11 @@ enum BuildSheetPDF {
         let scale = min(area.width / across, area.height / tall)
         let origin = CGPoint(x: area.midX - middle.x * scale, y: area.midY - middle.y * scale)
         func frame(_ coord: HexCoord) -> Frame {
-            let center = maze.center(of: coord)
-            return Frame(center: CGPoint(x: origin.x + center.x * scale, y: origin.y + center.y * scale), scale: scale)
+            let cell = maze.frame(of: coord)
+            return Frame(
+                center: CGPoint(x: origin.x + cell.center.x * scale, y: origin.y + cell.center.y * scale),
+                scale: scale, angle: cell.angle
+            )
         }
 
         var frameRects: [CGRect] = []

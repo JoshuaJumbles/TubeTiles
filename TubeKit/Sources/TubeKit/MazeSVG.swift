@@ -57,7 +57,7 @@ public enum MazeSVG {
             Point(x: width / 2 + (point.x - middle.x) * scale, y: height / 2 + (point.y - middle.y) * scale)
         }
         func place(_ local: Point, in coord: HexCoord) -> Point {
-            place(maze.center(of: coord) + local)
+            place(maze.frame(of: coord).place(local))
         }
         func number(_ value: Double) -> String {
             String(format: "%.2f", value)
