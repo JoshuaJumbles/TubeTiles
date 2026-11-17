@@ -25,7 +25,7 @@ struct KindIcon: View {
         Canvas { context, size in
             let frame = TileFrame(fitting: size, padding: 3)
             let style = TileStyle(portsPerEdge: 3)
-            let hex = TileRenderer.hexPath(in: frame)
+            let hex = TileRenderer.outline(of: style.shape, in: frame)
             context.fill(hex, with: .color(TilePalette.face))
             var clipped = context
             clipped.clip(to: hex)

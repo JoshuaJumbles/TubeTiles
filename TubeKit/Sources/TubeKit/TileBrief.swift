@@ -15,7 +15,7 @@ public struct TileBrief: Hashable, Sendable {
     public let closed: Set<Port>
 
     public init(portsPerEdge: Int, required: [Int?], needsDeadEnd: Bool = false, closed: Set<Port> = []) {
-        precondition(required.count == HexGeometry.edgeCount, "A brief has one requirement per edge")
+        precondition(required.count >= 3, "A brief has one requirement per edge")
         self.portsPerEdge = portsPerEdge
         self.required = required
         self.needsDeadEnd = needsDeadEnd
@@ -69,7 +69,7 @@ extension Maze {
         guard contains(coord) else { return nil }
         return TileBrief(
             portsPerEdge: portsPerEdge,
-            required: (0..<HexGeometry.edgeCount).map { requirement(at: coord, edge: $0) },
+            required: edges(at: coord).map { requirement(at: coord, edge: $0) },
             needsDeadEnd: goals.contains(coord),
             closed: closedPorts(at: coord)
         )

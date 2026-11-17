@@ -79,10 +79,9 @@ extension Maze {
     /// The pipe reached by leaving the tile at `coord` through `port`, and
     /// the end of it the path arrives at.
     private func crossing(from coord: HexCoord, through port: Port) -> (coord: HexCoord, pipe: Pipe, entry: Port)? {
-        let neighbour = coord.neighbour(across: port.edge)
-        let entry = port.neighbourPort(portsPerEdge: portsPerEdge)
-        guard let pipe = cells[neighbour]?.oriented.pipe(at: entry) else { return nil }
-        return (neighbour, pipe, entry)
+        let other = tiling.touching(port, of: coord, portsPerEdge: portsPerEdge)
+        guard let pipe = cells[other.coord]?.oriented.pipe(at: other.port) else { return nil }
+        return (other.coord, pipe, other.port)
     }
 
     /// Follows every pipe across tile edges and groups them into paths.

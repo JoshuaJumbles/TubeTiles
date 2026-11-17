@@ -39,7 +39,6 @@ public struct BuildSheet: Sendable {
 
     public init(maze: Maze, flippedIsSame: Bool = false) {
         self.flippedIsSame = flippedIsSame
-        let transforms = TileTransform.allCases.filter { flippedIsSame || !$0.mirrored }
 
         struct Found {
             var tile: Tile
@@ -51,7 +50,7 @@ public struct BuildSheet: Sendable {
             // The turn that gives the smallest description is the same for
             // every placement of a tile, so it serves as the right way up.
             var best: (key: [Int], tile: Tile, transform: TileTransform)?
-            for transform in transforms {
+            for transform in placed.oriented.shape.transforms where flippedIsSame || !transform.mirrored {
                 let turned = placed.oriented.transformed(by: transform)
                 let key = Self.key(for: turned)
                 if best == nil || key.lexicographicallyPrecedes(best!.key) {
@@ -60,7 +59,10 @@ public struct BuildSheet: Sendable {
             }
             guard let best else { continue }
             var entry = found[best.key] ?? Found(
-                tile: Tile(portsPerEdge: maze.portsPerEdge, gauge: maze.gauge, uncheckedPipes: best.tile.pipes)
+                tile: Tile(
+                    portsPerEdge: maze.portsPerEdge, gauge: maze.gauge, shape: best.tile.shape,
+                    uncheckedPipes: best.tile.pipes
+                )
             )
             // Undoing that turn takes the upright tile back to the cell.
             entry.cells.append((coord, best.transform.inverse))

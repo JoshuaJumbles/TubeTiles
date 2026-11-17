@@ -46,8 +46,9 @@ public enum MazeSVG {
         // The page fits the mask where there is one, and the whole hexagon
         // of cells where there is not.
         let bounds = maze.mask?.bounds
-        let across = bounds.map { $0.max.x - $0.min.x } ?? 3 * Double(maze.radius) + 2
-        let tall = bounds.map { $0.max.y - $0.min.y } ?? HexGeometry.inradius * 2 * Double(2 * maze.radius + 1)
+        let whole = maze.tiling.extent(radius: maze.radius)
+        let across = bounds.map { $0.max.x - $0.min.x } ?? whole.width
+        let tall = bounds.map { $0.max.y - $0.min.y } ?? whole.height
         let middle = bounds.map { ($0.min + $0.max) * 0.5 } ?? .zero
         let width = across * scale + options.padding * 2
         let height = tall * scale + options.padding * 2
@@ -56,7 +57,7 @@ public enum MazeSVG {
             Point(x: width / 2 + (point.x - middle.x) * scale, y: height / 2 + (point.y - middle.y) * scale)
         }
         func place(_ local: Point, in coord: HexCoord) -> Point {
-            place(coord.center + local)
+            place(maze.center(of: coord) + local)
         }
         func number(_ value: Double) -> String {
             String(format: "%.2f", value)
@@ -132,7 +133,7 @@ public enum MazeSVG {
             let clip = maze.mask == nil ? "" : #" clip-path="url(#bounds-clip)""#
             lines.append(#"  <g id="cells" fill="none" stroke="\#(options.ink)" stroke-opacity="0.15" stroke-width="1"\#(clip)>"#)
             for coord in maze.coords where maze.cells[coord] != nil {
-                let corners = (0..<HexGeometry.edgeCount).map { text(place(HexGeometry.corner($0), in: coord)) }
+                let corners = maze.tiling.shape(of: coord).corners.map { text(place($0, in: coord)) }
                 lines.append(#"    <polygon points="\#(corners.joined(separator: " "))"/>"#)
             }
             lines.append("  </g>")
@@ -177,8 +178,9 @@ public enum MazeSVG {
         if !maze.openings.isEmpty {
             lines.append(#"  <g id="openings" fill="none" stroke-linecap="butt">"#)
             for opening in maze.openings.sorted(by: { ($0.coord, $0.port) < ($1.coord, $1.port) }) {
-                let start = HexGeometry.position(of: opening.port, portsPerEdge: maze.portsPerEdge)
-                let outward = HexGeometry.inwardDirection(edge: opening.port.edge) * -1
+                let outline = maze.tiling.shape(of: opening.coord)
+                let start = outline.position(of: opening.port, portsPerEdge: maze.portsPerEdge)
+                let outward = outline.inwardDirection(edge: opening.port.edge) * -1
                 let end = start + outward * MazeSVG.openingLength
                 let mouth = start + outward * (MazeSVG.openingLength + style.wallThickness)
                 let index = paths.index(of: opening)

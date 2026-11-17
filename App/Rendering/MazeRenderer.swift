@@ -6,16 +6,19 @@ import TubeKit
 struct MazeLayout {
     var origin: CGPoint
     var scale: CGFloat
+    /// How the maze's cells are laid out.
+    var tiling: Tiling
 
     /// The layout that fits the whole maze inside `size`, then zoomed and
     /// moved by `viewport`. A masked maze is fitted to its mask, which may
     /// sit off to one side of the origin cell.
     init(size: CGSize, maze: Maze, padding: CGFloat, viewport: Viewport = Viewport()) {
-        // An unmasked region spans 3r + 2 units across and sqrt(3)(2r + 1)
-        // tall, centred on the origin cell.
+        tiling = maze.tiling
+        // An unmasked region is centred on the origin cell.
         let bounds = maze.mask?.bounds
-        let across = bounds.map { $0.max.x - $0.min.x } ?? 3 * Double(maze.radius) + 2
-        let tall = bounds.map { $0.max.y - $0.min.y } ?? HexGeometry.inradius * 2 * Double(2 * maze.radius + 1)
+        let whole = maze.tiling.extent(radius: maze.radius)
+        let across = bounds.map { $0.max.x - $0.min.x } ?? whole.width
+        let tall = bounds.map { $0.max.y - $0.min.y } ?? whole.height
         let middle = bounds.map { ($0.min + $0.max) * 0.5 } ?? .zero
         let fit = max(1, min((size.width - padding * 2) / across, (size.height - padding * 2) / tall))
         scale = fit * viewport.zoom
@@ -45,11 +48,12 @@ struct MazeLayout {
     }
 
     func frame(for coord: HexCoord) -> TileFrame {
-        let center = coord.center
-        return TileFrame(
-            center: CGPoint(x: origin.x + center.x * scale, y: origin.y + center.y * scale),
-            scale: scale
-        )
+        TileFrame(center: point(tiling.center(of: coord)), scale: scale)
+    }
+
+    /// The outline of a cell in the view.
+    func outline(of coord: HexCoord) -> Path {
+        TileRenderer.outline(of: tiling.shape(of: coord), in: frame(for: coord))
     }
 
     func gridPoint(_ point: CGPoint) -> Point {
@@ -62,7 +66,8 @@ struct MazeLayout {
     func outlinePort(at point: CGPoint, in maze: Maze, allowed: (PortRef) -> Bool = { _ in true }) -> PortRef? {
         let target = gridPoint(point)
         func position(_ ref: PortRef) -> Point {
-            ref.coord.center + HexGeometry.position(of: ref.port, portsPerEdge: maze.portsPerEdge)
+            tiling.center(of: ref.coord)
+                + tiling.shape(of: ref.coord).position(of: ref.port, portsPerEdge: maze.portsPerEdge)
         }
         let nearest = maze.outlinePorts.filter(allowed).min { position($0).distance(to: target) < position($1).distance(to: target) }
         guard let nearest, position(nearest).distance(to: target) <= 0.6 else { return nil }
@@ -73,9 +78,11 @@ struct MazeLayout {
     /// measured from the cell's centre in tile units.
     func cell(at point: CGPoint, in maze: Maze) -> (coord: HexCoord, local: Point)? {
         let target = gridPoint(point)
-        let nearest = maze.coords.min { $0.center.distance(to: target) < $1.center.distance(to: target) }
-        guard let nearest, nearest.center.distance(to: target) <= 1 else { return nil }
-        return (nearest, target - nearest.center)
+        func distance(_ coord: HexCoord) -> Double { tiling.center(of: coord).distance(to: target) }
+        guard let nearest = maze.coords.min(by: { distance($0) < distance($1) }),
+              distance(nearest) <= tiling.shape(of: nearest).circumradius
+        else { return nil }
+        return (nearest, target - tiling.center(of: nearest))
     }
 }
 
@@ -113,7 +120,7 @@ enum MazeRenderer {
 
         for coord in maze.coords {
             let frame = layout.frame(for: coord)
-            let hex = TileRenderer.hexPath(in: frame)
+            let hex = layout.outline(of: coord)
             if let placed = maze.cells[coord] {
                 if showsCells {
                     cellContext.fill(hex, with: .color(TilePalette.face))
@@ -150,8 +157,9 @@ enum MazeRenderer {
         // the region.
         for opening in maze.openings {
             let frame = layout.frame(for: opening.coord)
-            let start = HexGeometry.position(of: opening.port, portsPerEdge: maze.portsPerEdge)
-            let outward = HexGeometry.inwardDirection(edge: opening.port.edge) * -1
+            let outline = maze.tiling.shape(of: opening.coord)
+            let start = outline.position(of: opening.port, portsPerEdge: maze.portsPerEdge)
+            let outward = outline.inwardDirection(edge: opening.port.edge) * -1
             func line(length: Double) -> Path {
                 var path = Path()
                 path.move(to: frame.point(start))
