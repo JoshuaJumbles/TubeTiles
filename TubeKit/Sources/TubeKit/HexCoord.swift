@@ -66,8 +66,8 @@ public enum Symmetry: String, CaseIterable, Sendable, Codable {
     case third
     /// Looks the same after a sixth of a turn.
     case sixth
-    /// Looks the same after a quarter of a turn. Only a grid of squares
-    /// can keep it.
+    /// Looks the same after a quarter of a turn. Grids of squares and of
+    /// Cairo pentagons can keep it.
     case quarter
 
     /// The transforms of a hex grid that leave a maze with this symmetry

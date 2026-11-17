@@ -61,6 +61,11 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     /// A cell's `q` is its pair's column. Its `r` is twice the pair's row,
     /// plus one for the second pentagon of the pair: the upper one of an
     /// upright pair, the right-hand one of a sideways pair.
+    ///
+    /// The centre of the grid is not a cell but a corner where four
+    /// pentagons meet, the one point the tiling can be turned a quarter
+    /// about. The four pairs around it are columns -1 and 0 of rows -1
+    /// and 0.
     case cairo
 
     /// The tiling whose cells have the given shape.
@@ -116,8 +121,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             // pair, on the side its wide corner points to.
             let parts = Self.cairoParts(cell)
             let reach = TileShape.cairoHalfHeight
-            let x = Double(parts.column) * Self.cairoPitch
-            let y = Double(parts.row) * Self.cairoPitch
+            let x = (Double(parts.column) + 0.5) * Self.cairoPitch
+            let y = (Double(parts.row) + 0.5) * Self.cairoPitch
             if parts.sideways {
                 // The first points left and sits to the left.
                 return Point(x: x + (parts.second ? reach : -reach), y: y)
@@ -187,17 +192,24 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .square:
             return max(abs(cell.q), abs(cell.r))
         case .cairo:
-            // By pairs, so a region is a square block of them.
+            // By pairs, so a region is a square block of them. The centre
+            // is a corner between pairs, so columns -1 and 0 are equally
+            // near it.
             let parts = Self.cairoParts(cell)
-            return max(abs(parts.column), abs(parts.row))
+            return max(
+                parts.column < 0 ? -parts.column - 1 : parts.column,
+                parts.row < 0 ? -parts.row - 1 : parts.row
+            )
         }
     }
 
     /// Every cell within `radius` rings of the origin, in a stable order.
     public func cells(radius: Int) -> [HexCoord] {
-        // A Cairo row holds two cells, so its `r` runs twice as far.
-        let rows = self == .cairo ? (-2 * radius)...(2 * radius + 1) : (-radius)...radius
-        return (-radius...radius).flatMap { q in
+        // A Cairo row holds two cells, so its `r` runs twice as far, and
+        // there is one more column and row on the near side of the centre.
+        let rows = self == .cairo ? (-2 * radius - 2)...(2 * radius + 1) : (-radius)...radius
+        let columns = self == .cairo ? (-radius - 1)...radius : (-radius)...radius
+        return columns.flatMap { q in
             rows.map { HexCoord(q: q, r: $0) }
         }.filter { ring(of: $0) <= radius }
     }
@@ -206,12 +218,12 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         switch self {
         case .hexagonal: 3 * radius * (radius + 1) + 1
         case .square: (2 * radius + 1) * (2 * radius + 1)
-        case .cairo: 2 * (2 * radius + 1) * (2 * radius + 1)
+        case .cairo: 8 * (radius + 1) * (radius + 1)
         }
     }
 
     /// The width and height of the region within `radius` rings, centred on
-    /// the origin cell.
+    /// the centre of the grid.
     public func extent(radius: Int) -> (width: Double, height: Double) {
         switch self {
         case .hexagonal:
@@ -219,10 +231,9 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .square:
             return (Double(2 * radius + 1), Double(2 * radius + 1))
         case .cairo:
-            // A lone pair is taller than wide. From one ring out, sideways
-            // pairs reach as far across as upright ones reach up and down.
-            if radius == 0 { return (TileShape.cairoSine * 2, TileShape.cairoHalfHeight * 4) }
-            let side = 2 * (Double(radius) * Self.cairoPitch + TileShape.cairoHalfHeight * 2)
+            // Sideways pairs reach as far across as upright ones reach up
+            // and down.
+            let side = 2 * ((Double(radius) + 0.5) * Self.cairoPitch + TileShape.cairoHalfHeight * 2)
             return (side, side)
         }
     }
@@ -245,6 +256,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
                     // A cell reaches half a unit either side of its centre.
                     furthest = max(furthest, abs(x) - 0.5, abs(y) - 0.5)
                 case .cairo:
+                    // Rounded up below, which is a ring to spare for the
+                    // pentagons that reach in from the next pair.
                     furthest = max(furthest, abs(x) / Self.cairoPitch, abs(y) / Self.cairoPitch)
                 }
             }
@@ -278,14 +291,15 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         switch self {
         case .hexagonal: [.none, .mirror, .half, .third, .sixth]
         case .square: [.none, .mirror, .half, .quarter]
-        // Its symmetries turn about a corner where four pentagons meet,
-        // not about a cell, and are not offered yet.
-        case .cairo: [.none]
+        // Turns only: the tiling's mirror lines miss the corner at the
+        // centre of the grid.
+        case .cairo: [.none, .half, .quarter]
         }
     }
 
-    /// The turns and flips of the whole grid, about the origin cell, that
-    /// leave a maze with the given symmetry unchanged.
+    /// The turns and flips of the whole grid, about its centre, that leave
+    /// a maze with the given symmetry unchanged. On Cairo tiles they are
+    /// counted in quarter turns of the grid, not in edges of a tile.
     public func transforms(for symmetry: Symmetry) -> [TileTransform] {
         switch self {
         case .hexagonal:
@@ -300,12 +314,17 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             case .none, .third, .sixth: return [same]
             }
         case .cairo:
-            return [TileTransform(sides: 5)]
+            switch symmetry {
+            case .half: return [0, 2].map { TileTransform(turns: $0, sides: 4) }
+            case .quarter: return (0..<4).map { TileTransform(turns: $0, sides: 4) }
+            // No mirror line passes through the centre.
+            case .none, .mirror, .third, .sixth: return [TileTransform(sides: 4)]
+            }
         }
     }
 
     /// Where a cell lands when the whole grid is turned and flipped about
-    /// the origin cell.
+    /// its centre.
     public func transformed(_ cell: HexCoord, by transform: TileTransform) -> HexCoord {
         switch self {
         case .hexagonal:
@@ -320,7 +339,18 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             }
             return HexCoord(q: q, r: r)
         case .cairo:
-            return cell
+            var parts = Self.cairoParts(cell)
+            // Which way the pentagon points, in quarter turns clockwise
+            // from pointing down, as in `turn(of:)`.
+            var pointing = parts.sideways ? (parts.second ? 3 : 1) : (parts.second ? 2 : 0)
+            for _ in 0..<transform.turns {
+                // A quarter turn clockwise about the corner takes the pair
+                // to the right of the centre to the one below it.
+                (parts.column, parts.row) = (-parts.row - 1, parts.column)
+                pointing = (pointing + 1) % 4
+            }
+            // Up and right are the second pentagons of their pairs.
+            return HexCoord(q: parts.column, r: 2 * parts.row + (pointing >= 2 ? 1 : 0))
         }
     }
 
@@ -334,7 +364,11 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     /// can land a tile in a cell that is already a quarter round, so the
     /// tile is not turned at all.
     public func images(of cell: HexCoord, under symmetry: Symmetry) -> [(cell: HexCoord, tile: TileTransform)] {
-        transforms(for: symmetry).map { (transformed(cell, by: $0), $0) }
+        transforms(for: symmetry).map { turn in
+            // A Cairo cell is turned as far as the grid was to reach it, so
+            // its tile goes in as it is.
+            (transformed(cell, by: turn), self == .cairo ? TileTransform(sides: 5) : turn)
+        }
     }
 
     /// The ways a tile has to look the same as itself for its cell to keep
