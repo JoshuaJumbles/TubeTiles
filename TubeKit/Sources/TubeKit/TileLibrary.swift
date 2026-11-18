@@ -2,6 +2,10 @@ import Foundation
 
 /// A named collection of tiles built to one port count and one look.
 ///
+/// A library can hold tiles of several shapes. What it shares across them
+/// is the look: the port count, the pipe thickness and the rules below. Any
+/// tiling whose cells are all shapes the library holds can be laid with it.
+///
 /// A library carries the rules its tiles are meant to follow: which pipe
 /// kinds they use, and which ports are left alone. The rules steer the editor
 /// and, above all, the tiles the generator makes up, so a maze grown from a
@@ -12,8 +16,9 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     /// What the library is for, in the maker's own words.
     public var note: String
     public let portsPerEdge: Int
-    /// The outline every tile in the library has.
-    public let shape: TileShape
+    /// The outlines the library's tiles can have, in the order they are
+    /// shown. Never empty, and no shape twice.
+    public let shapes: [TileShape]
     /// The pipe kinds this library's tiles are meant to use.
     public var allowedKinds: Set<PipeKind>
     /// How thick the pipes of every tile in the library are.
@@ -34,13 +39,13 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
         allowedKinds: Set<PipeKind> = Set(PipeKind.allCases),
         deadSlots: Set<Int> = [],
         gauge: PipeGauge = .standard,
-        shape: TileShape = .hexagon
+        shapes: [TileShape] = [.hexagon]
     ) {
         self.id = id
         self.name = name
         self.note = note
         self.portsPerEdge = portsPerEdge
-        self.shape = shape
+        self.shapes = Self.distinct(shapes)
         self.allowedKinds = allowedKinds
         self.gauge = gauge
         self.deadPorts = []
@@ -48,8 +53,16 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
         setDeadSlots(deadSlots)
     }
 
+    /// The shapes in the order given, each once, or hexagons if there are
+    /// none.
+    private static func distinct(_ shapes: [TileShape]) -> [TileShape] {
+        var result: [TileShape] = []
+        for shape in shapes where !result.contains(shape) { result.append(shape) }
+        return result.isEmpty ? [.hexagon] : result
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case id, name, note, portsPerEdge, shape, allowedKinds, gauge, deadPorts, tiles
+        case id, name, note, portsPerEdge, shape, shapes, allowedKinds, gauge, deadPorts, tiles
     }
 
     /// Libraries saved before they had an identity, a note or rules load
@@ -61,16 +74,20 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
         name = try container.decode(String.self, forKey: .name)
         note = try container.decodeIfPresent(String.self, forKey: .note) ?? ""
         portsPerEdge = ports
-        let shape = try container.decodeIfPresent(TileShape.self, forKey: .shape) ?? .hexagon
-        self.shape = shape
+        // A library of one shape is stored as it always was, under `shape`.
+        let shapes = Self.distinct(
+            try container.decodeIfPresent([TileShape].self, forKey: .shapes)
+                ?? [try container.decodeIfPresent(TileShape.self, forKey: .shape) ?? .hexagon]
+        )
+        self.shapes = shapes
         allowedKinds = try container.decodeIfPresent(Set<PipeKind>.self, forKey: .allowedKinds)
             ?? Set(PipeKind.allCases)
         deadPorts = Set((try container.decodeIfPresent([Port].self, forKey: .deadPorts) ?? [])
-            .filter { shape.isValid($0, portsPerEdge: ports) })
+            .filter { port in shapes.contains { $0.isValid(port, portsPerEdge: ports) } })
         let gauge = try container.decodeIfPresent(PipeGauge.self, forKey: .gauge) ?? .standard
         self.gauge = gauge
         tiles = try container.decode([Tile].self, forKey: .tiles)
-            .filter { $0.portsPerEdge == ports && $0.shape == shape }
+            .filter { $0.portsPerEdge == ports && shapes.contains($0.shape) }
             .map { $0.gauged(gauge) }
     }
 
@@ -80,12 +97,41 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
         try container.encode(name, forKey: .name)
         try container.encode(note, forKey: .note)
         try container.encode(portsPerEdge, forKey: .portsPerEdge)
-        if shape != .hexagon { try container.encode(shape, forKey: .shape) }
+        if shapes.count > 1 {
+            try container.encode(shapes, forKey: .shapes)
+        } else if shapes != [.hexagon] {
+            try container.encode(shapes[0], forKey: .shape)
+        }
         // In a fixed order, so saving the same library twice gives the same file.
         try container.encode(PipeKind.allCases.filter(allowedKinds.contains), forKey: .allowedKinds)
         if gauge != .standard { try container.encode(gauge, forKey: .gauge) }
         try container.encode(deadPorts.sorted(), forKey: .deadPorts)
         try container.encode(tiles, forKey: .tiles)
+    }
+
+    // MARK: Shapes
+
+    /// The tiles of one shape, in the order they were saved.
+    public func tiles(of shape: TileShape) -> [Tile] {
+        tiles.filter { $0.shape == shape }
+    }
+
+    /// The tilings this library can lay: those whose every cell is a shape
+    /// it holds. A library with more shapes than a tiling needs can still
+    /// lay it, using only the tiles that fit.
+    public var tilings: [Tiling] {
+        Tiling.allCases.filter { $0.shapes.allSatisfy(shapes.contains) }
+    }
+
+    /// Whether tiles of `other` could be saved here: the same port count
+    /// and at least one shape in common.
+    public func canTakeTiles(from other: TileLibrary) -> Bool {
+        other.portsPerEdge == portsPerEdge && other.shapes.contains(where: shapes.contains)
+    }
+
+    /// The most edges any of the library's shapes has.
+    private var edgeCount: Int {
+        shapes.map(\.edgeCount).max() ?? 0
     }
 
     // MARK: Rules
@@ -129,13 +175,13 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     /// The slots that are dead on every edge alike, or nil if the pattern
     /// differs between edges.
     public var deadSlots: Set<Int>? {
-        let perEdge = (0..<shape.edgeCount).map { edge in
+        let perEdge = (0..<edgeCount).map { edge in
             Set(deadPorts.filter { $0.edge == edge }.map(\.slot))
         }
         return perEdge.allSatisfy { $0 == perEdge[0] } ? perEdge[0] : nil
     }
 
-    /// Makes the given slots dead on all six edges.
+    /// Makes the given slots dead on every edge of every shape.
     ///
     /// A slot's mirror image is made dead with it. Flipping a tile reverses
     /// the order of the ports along each edge, so without this a flipped tile
@@ -146,7 +192,7 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
             mirrored.insert(slot)
             mirrored.insert(portsPerEdge - 1 - slot)
         }
-        deadPorts = Set((0..<shape.edgeCount).flatMap { edge in
+        deadPorts = Set((0..<edgeCount).flatMap { edge in
             mirrored.map { Port(edge: edge, slot: $0) }
         })
     }
@@ -178,8 +224,8 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     /// Adds a tile, or replaces the stored tile with the same `id`.
     public mutating func save(_ tile: Tile) {
         precondition(
-            tile.portsPerEdge == portsPerEdge && tile.shape == shape,
-            "Tile does not match the library's shape and port count"
+            tile.portsPerEdge == portsPerEdge && shapes.contains(tile.shape),
+            "Tile does not match the library's shapes and port count"
         )
         let tile = tile.gauged(gauge)
         if let index = tiles.firstIndex(where: { $0.id == tile.id }) {
@@ -202,7 +248,7 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     public func duplicated(named name: String) -> TileLibrary {
         var copy = TileLibrary(
             name: name, note: note, portsPerEdge: portsPerEdge, allowedKinds: allowedKinds, gauge: gauge,
-            shape: shape
+            shapes: shapes
         )
         copy.deadPorts = deadPorts
         copy.tiles = tiles.map { tile in
@@ -221,14 +267,19 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
     /// flipped. Returns how many were added and how many were passed over.
     ///
     /// The other library's rules are not taken on. Its tiles are drawn at
-    /// this library's pipe thickness, like every tile saved here. Nothing is
+    /// this library's pipe thickness, like every tile saved here. Tiles of a
+    /// shape this library does not hold are passed over, and nothing is
     /// added if the port counts differ.
     @discardableResult
     public mutating func merge(_ other: TileLibrary) -> (added: Int, skipped: Int) {
-        guard other.portsPerEdge == portsPerEdge, other.shape == shape else { return (0, other.tiles.count) }
+        guard canTakeTiles(from: other) else { return (0, other.tiles.count) }
         var added = 0
         var skipped = 0
         for tile in other.tiles where !tile.pipes.isEmpty {
+            guard shapes.contains(tile.shape) else {
+                skipped += 1
+                continue
+            }
             var copy = tile
             copy.id = UUID()
             if twin(of: copy) == nil {
@@ -262,9 +313,9 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
         let wanted = Set(tile.pipes)
         let profile = tile.profile
         for stored in tiles where stored.id != tile.id && stored.pipes.count == wanted.count {
-            guard stored.profile == profile else { continue }
+            guard stored.shape == tile.shape, stored.profile == profile else { continue }
             // The plain placement first, so an exact copy is reported as one.
-            for transform in shape.transforms where Set(stored.transformed(by: transform).pipes) == wanted {
+            for transform in tile.shape.transforms where Set(stored.transformed(by: transform).pipes) == wanted {
                 return (stored, transform)
             }
         }

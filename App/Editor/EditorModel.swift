@@ -46,7 +46,7 @@ final class EditorModel {
     init(library: LibraryModel) {
         self.library = library
         let tile = Tile(
-            portsPerEdge: library.current.portsPerEdge, gauge: library.current.gauge, shape: library.current.shape
+            portsPerEdge: library.current.portsPerEdge, gauge: library.current.gauge, shape: library.current.shapes[0]
         )
         self.tile = tile
         coverage = CoverageMap(tile: tile)
@@ -105,11 +105,11 @@ final class EditorModel {
     /// the library allows.
     func libraryChanged() {
         let current = library.current
-        if tile.portsPerEdge != current.portsPerEdge || tile.shape != current.shape {
+        if tile.portsPerEdge != current.portsPerEdge || !current.shapes.contains(tile.shape) {
             // A tile cannot change shape or port count, so start a fresh one.
             undoStack.removeAll()
             redoStack.removeAll()
-            apply(Tile(portsPerEdge: current.portsPerEdge, gauge: current.gauge, shape: current.shape))
+            apply(Tile(portsPerEdge: current.portsPerEdge, gauge: current.gauge, shape: current.shapes[0]))
             gap = nil
         }
         if tile.gauge != current.gauge {
