@@ -46,6 +46,7 @@ struct LibraryView: View {
     @State private var editing: Editing?
     @State private var isConfirmingDelete = false
     @State private var isImporting = false
+    @State private var isChoosingLibrary = false
     /// A library read from a file, waiting to be told where it goes.
     @State private var incoming: TileLibrary?
     /// What an import did, or why it could not be done.
@@ -123,6 +124,9 @@ struct LibraryView: View {
                 // The title is drawn in the page so it scrolls with the tiles.
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar { toolbar(for: current) }
+                .sheet(isPresented: $isChoosingLibrary) {
+                    LibraryPicker(libraries: library.libraries, selectedID: library.currentID) { library.select($0) }
+                }
                 .fileImporter(isPresented: $isImporting, allowedContentTypes: [.json], onCompletion: readImport)
                 .confirmationDialog(
                     "Import \u{201C}\(incoming?.name ?? "")\u{201D}",
@@ -211,12 +215,8 @@ struct LibraryView: View {
     private func toolbar(for current: TileLibrary) -> some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
             Menu {
-                Picker("Library", selection: Binding(
-                    get: { library.currentID }, set: { library.select($0) }
-                )) {
-                    ForEach(library.libraries) { item in
-                        Text("\(item.name) · \(item.portsPerEdge) ports").tag(item.id)
-                    }
+                Button { isChoosingLibrary = true } label: {
+                    Label("Switch library", systemImage: "arrow.left.arrow.right")
                 }
                 Divider()
                 Button { editing = .new } label: {

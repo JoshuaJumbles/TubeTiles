@@ -291,15 +291,8 @@ private struct GeneratorPanel: View {
 
             DisclosureGroup("Options", isExpanded: $showsOptions) {
                 VStack(alignment: .leading, spacing: 14) {
-                    LabeledContent("Library") {
-                        Picker("Library", selection: Binding(
-                            get: { model.currentLibrary.id }, set: { model.chooseLibrary($0) }
-                        )) {
-                            ForEach(model.libraries) { library in
-                                Text("\(library.name) · \(library.portsPerEdge) ports").tag(library.id)
-                            }
-                        }
-                        .pickerStyle(.menu)
+                    LibraryChoice(libraries: model.libraries, selectedID: model.currentLibrary.id) {
+                        model.chooseLibrary($0)
                     }
 
                     VStack(alignment: .leading, spacing: 8) {

@@ -205,16 +205,7 @@ private struct EditorPanel: View {
             }
             .buttonStyle(.bordered)
 
-            LabeledContent("Library") {
-                Picker("Library", selection: Binding(
-                    get: { model.libraryID }, set: { model.chooseLibrary($0) }
-                )) {
-                    ForEach(model.libraries) { library in
-                        Text("\(library.name) · \(library.portsPerEdge) ports").tag(library.id)
-                    }
-                }
-                .pickerStyle(.menu)
-            }
+            LibraryChoice(libraries: model.libraries, selectedID: model.libraryID) { model.chooseLibrary($0) }
 
             HStack(spacing: 10) {
                 Button { model.newTile() } label: {
