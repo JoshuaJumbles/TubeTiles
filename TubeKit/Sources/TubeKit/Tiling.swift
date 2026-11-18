@@ -67,13 +67,21 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     /// about. The four pairs around it are columns -1 and 0 of rows -1
     /// and 0.
     case cairo
+    /// Octagons in rows and columns, with a square turned on its corner in
+    /// each gap where four of them meet.
+    ///
+    /// Cells are addressed in half steps of the octagons' spacing. An
+    /// octagon has `q` and `r` both even, a square has both odd, and no
+    /// cell has one of each.
+    case truncatedSquare
 
-    /// The tiling whose cells have the given shape.
+    /// One tiling with cells of the given shape.
     public init(shape: TileShape) {
         switch shape {
         case .hexagon: self = .hexagonal
         case .square: self = .square
         case .cairo: self = .cairo
+        case .octagon: self = .truncatedSquare
         }
     }
 
@@ -84,18 +92,28 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .hexagonal: [.hexagon]
         case .square: [.square]
         case .cairo: [.cairo]
+        case .truncatedSquare: [.octagon, .square]
         }
     }
 
-    /// The shape of a cell. Every cell is alike in the tilings so far; one
-    /// that mixes shapes would answer by cell.
+    /// The shape of a cell.
     public func shape(of cell: HexCoord) -> TileShape {
         switch self {
         case .hexagonal: .hexagon
         case .square: .square
         case .cairo: .cairo
+        case .truncatedSquare: cell.q & 1 == 0 ? .octagon : .square
         }
     }
+
+    /// Whether an address names a cell. Every pair of numbers does, except
+    /// where octagons and squares share the grid.
+    public func isCell(_ cell: HexCoord) -> Bool {
+        self != .truncatedSquare || (cell.q & 1) == (cell.r & 1)
+    }
+
+    /// Distance between neighbouring octagons: twice an octagon's inradius.
+    static let octagonPitch = 1 + (2.0).squareRoot()
 
     /// Distance between neighbouring pairs of Cairo pentagons.
     static let cairoPitch = 0.5 + TileShape.cairoHalfHeight * 2
@@ -139,6 +157,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             }
             // The first points down and sits below.
             return Point(x: x, y: y + (parts.second ? -reach : reach))
+        case .truncatedSquare:
+            return Point(x: Double(cell.q), y: Double(cell.r)) * (Self.octagonPitch / 2)
         }
     }
 
@@ -154,6 +174,10 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             let parts = Self.cairoParts(cell)
             let quarters = parts.sideways ? (parts.second ? 3 : 1) : (parts.second ? 2 : 0)
             return Double(quarters) * .pi / 2
+        case .truncatedSquare:
+            // A square stands on its corner, so its top edge faces up and
+            // to the right.
+            return cell.q & 1 == 0 ? 0 : .pi / 4
         }
     }
 
@@ -181,6 +205,18 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
                 HexCoord(q: parts.column + other.column, r: 2 * (parts.row + other.row) + (other.second ? 1 : 0)),
                 other.edge
             )
+        case .truncatedSquare:
+            if cell.q & 1 == 0 {
+                // An octagon's level and upright edges meet other octagons,
+                // its slanted ones meet squares.
+                let step = [(0, -2), (1, -1), (2, 0), (1, 1), (0, 2), (-1, 1), (-2, 0), (-1, -1)][edge]
+                let other = HexCoord(q: cell.q + step.0, r: cell.r + step.1)
+                return (other, edge % 2 == 0 ? (edge + 4) % 8 : [2, 3, 0, 1][edge / 2])
+            }
+            // A square's edges face up-right, down-right, down-left and
+            // up-left, each onto a slanted edge of an octagon.
+            let step = [(1, -1), (1, 1), (-1, 1), (-1, -1)][edge]
+            return (HexCoord(q: cell.q + step.0, r: cell.r + step.1), [5, 7, 1, 3][edge])
         }
     }
 
@@ -210,6 +246,11 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
                 parts.column < 0 ? -parts.column - 1 : parts.column,
                 parts.row < 0 ? -parts.row - 1 : parts.row
             )
+        case .truncatedSquare:
+            // By octagons, so a region is a square block of them. A square
+            // is on the ring of the furthest octagon it touches, which
+            // leaves a region with only the squares it surrounds.
+            return (max(abs(cell.q), abs(cell.r)) + 1) / 2
         }
     }
 
@@ -217,11 +258,19 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     public func cells(radius: Int) -> [HexCoord] {
         // A Cairo row holds two cells, so its `r` runs twice as far, and
         // there is one more column and row on the near side of the centre.
-        let rows = self == .cairo ? (-2 * radius - 2)...(2 * radius + 1) : (-radius)...radius
-        let columns = self == .cairo ? (-radius - 1)...radius : (-radius)...radius
+        var rows = (-radius)...radius
+        var columns = rows
+        if self == .cairo {
+            rows = (-2 * radius - 2)...(2 * radius + 1)
+            columns = (-radius - 1)...radius
+        } else if self == .truncatedSquare {
+            // Addresses go in half steps.
+            rows = (-2 * radius)...(2 * radius)
+            columns = rows
+        }
         return columns.flatMap { q in
             rows.map { HexCoord(q: q, r: $0) }
-        }.filter { ring(of: $0) <= radius }
+        }.filter { isCell($0) && ring(of: $0) <= radius }
     }
 
     public func cellCount(radius: Int) -> Int {
@@ -229,6 +278,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .hexagonal: 3 * radius * (radius + 1) + 1
         case .square: (2 * radius + 1) * (2 * radius + 1)
         case .cairo: 8 * (radius + 1) * (radius + 1)
+        case .truncatedSquare: (2 * radius + 1) * (2 * radius + 1) + 4 * radius * radius
         }
     }
 
@@ -244,6 +294,9 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             // Sideways pairs reach as far across as upright ones reach up
             // and down.
             let side = 2 * ((Double(radius) + 0.5) * Self.cairoPitch + TileShape.cairoHalfHeight * 2)
+            return (side, side)
+        case .truncatedSquare:
+            let side = Double(2 * radius + 1) * Self.octagonPitch
             return (side, side)
         }
     }
@@ -269,6 +322,10 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
                     // Rounded up below, which is a ring to spare for the
                     // pentagons that reach in from the next pair.
                     furthest = max(furthest, abs(x) / Self.cairoPitch, abs(y) / Self.cairoPitch)
+                case .truncatedSquare:
+                    // An octagon reaches half a pitch either side of its
+                    // centre.
+                    furthest = max(furthest, abs(x) / Self.octagonPitch - 0.5, abs(y) / Self.octagonPitch - 0.5)
                 }
             }
         }
@@ -282,6 +339,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .square: Double(columns)
         // Two pentagons side by side take up one pitch.
         case .cairo: Double(columns) * Self.cairoPitch / 2
+        // Columns of octagons.
+        case .truncatedSquare: Double(columns) * Self.octagonPitch
         }
     }
 
@@ -291,6 +350,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .hexagonal: Int(((width - 0.5) / 1.5).rounded())
         case .square: Int(width.rounded())
         case .cairo: Int((width * 2 / Self.cairoPitch).rounded())
+        case .truncatedSquare: Int((width / Self.octagonPitch).rounded())
         }
     }
 
@@ -300,7 +360,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     public var symmetries: [Symmetry] {
         switch self {
         case .hexagonal: [.none, .mirror, .half, .third, .sixth]
-        case .square: [.none, .mirror, .half, .quarter]
+        // The centre is an octagon, which has every symmetry a square has.
+        case .square, .truncatedSquare: [.none, .mirror, .half, .quarter]
         // Turns only: the tiling's mirror lines miss the corner at the
         // centre of the grid.
         case .cairo: [.none, .half, .quarter]
@@ -308,13 +369,14 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     }
 
     /// The turns and flips of the whole grid, about its centre, that leave
-    /// a maze with the given symmetry unchanged. On Cairo tiles they are
-    /// counted in quarter turns of the grid, not in edges of a tile.
+    /// a maze with the given symmetry unchanged. Away from hexagons they
+    /// are counted in quarter turns of the grid, whatever the cells' shapes;
+    /// `images(of:under:)` says what each does to a tile.
     public func transforms(for symmetry: Symmetry) -> [TileTransform] {
         switch self {
         case .hexagonal:
             return symmetry.transforms
-        case .square:
+        case .square, .truncatedSquare:
             let same = TileTransform(sides: 4)
             switch symmetry {
             case .mirror: return [same, TileTransform(mirrored: true, sides: 4)]
@@ -339,7 +401,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         switch self {
         case .hexagonal:
             return cell.transformed(by: transform)
-        case .square:
+        // Half-step addresses turn and flip like whole ones.
+        case .square, .truncatedSquare:
             var q = cell.q
             var r = cell.r
             if transform.mirrored { q = -q }
@@ -374,10 +437,27 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     /// can land a tile in a cell that is already a quarter round, so the
     /// tile is not turned at all.
     public func images(of cell: HexCoord, under symmetry: Symmetry) -> [(cell: HexCoord, tile: TileTransform)] {
-        transforms(for: symmetry).map { turn in
+        transforms(for: symmetry).map { (transformed(cell, by: $0), tileTransform(for: $0, at: cell)) }
+    }
+
+    /// What a turn or flip of the whole grid does to the tile in a cell.
+    private func tileTransform(for grid: TileTransform, at cell: HexCoord) -> TileTransform {
+        switch self {
+        case .hexagonal, .square:
+            return grid
+        case .cairo:
             // A Cairo cell is turned as far as the grid was to reach it, so
             // its tile goes in as it is.
-            (transformed(cell, by: turn), self == .cairo ? TileTransform(sides: 5) : turn)
+            return TileTransform(sides: 5)
+        case .truncatedSquare:
+            if cell.q & 1 == 0 {
+                // A quarter turn is two of an octagon's edges.
+                return TileTransform(turns: grid.turns * 2, mirrored: grid.mirrored, sides: 8)
+            }
+            // A square on its corner is flipped about a line through two of
+            // its corners, which is a flip about its upright and then a
+            // quarter turn back.
+            return TileTransform(turns: grid.turns - (grid.mirrored ? 1 : 0), mirrored: grid.mirrored, sides: 4)
         }
     }
 

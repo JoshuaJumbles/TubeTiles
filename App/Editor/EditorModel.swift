@@ -271,6 +271,19 @@ final class EditorModel {
         apply(next)
     }
 
+    /// The shapes the library's tiles can have, for choosing which to draw.
+    var shapes: [TileShape] { library.current.shapes }
+
+    /// Starts a fresh tile of another of the library's shapes. A tile
+    /// cannot change shape, so what is on the canvas is set aside; undo
+    /// brings it back.
+    func setShape(_ shape: TileShape) {
+        guard shape != tile.shape, shapes.contains(shape) else { return }
+        commit(Tile(portsPerEdge: tile.portsPerEdge, gauge: tile.gauge, shape: shape))
+        gap = nil
+        message = nil
+    }
+
     func newTile() {
         commit(Tile(portsPerEdge: tile.portsPerEdge, gauge: tile.gauge, shape: tile.shape))
     }
@@ -288,7 +301,11 @@ final class EditorModel {
     /// Starts a fresh tile for a cell of the maze and marks what it needs.
     func design(for gap: GapBrief) {
         guard gap.brief.portsPerEdge == library.current.portsPerEdge else { return }
-        if !tile.pipes.isEmpty { commit(Tile(portsPerEdge: tile.portsPerEdge, gauge: tile.gauge, shape: tile.shape)) }
+        // The gap's shape is the one of the library's with as many edges.
+        let shape = shapes.first { $0.edgeCount == gap.brief.required.count } ?? tile.shape
+        if !tile.pipes.isEmpty || tile.shape != shape {
+            commit(Tile(portsPerEdge: tile.portsPerEdge, gauge: tile.gauge, shape: shape))
+        }
         self.gap = gap
         message = nil
     }

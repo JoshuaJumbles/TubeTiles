@@ -295,6 +295,19 @@ private struct GeneratorPanel: View {
                         model.chooseLibrary($0)
                     }
 
+                    // A library of several shapes can be laid more than
+                    // one way.
+                    if model.tilings.count > 1 {
+                        LabeledContent("Tiling") {
+                            Picker("Tiling", selection: Binding(
+                                get: { model.maze.tiling }, set: { model.setTiling($0) }
+                            )) {
+                                ForEach(model.tilings, id: \.self) { Text($0.title).tag($0) }
+                            }
+                            .pickerStyle(.menu)
+                        }
+                    }
+
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle("Keep inside a rectangle", isOn: Binding(
                             get: { model.hasBounds }, set: { model.setBounds($0) }

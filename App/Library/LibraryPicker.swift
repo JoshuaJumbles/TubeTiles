@@ -4,7 +4,8 @@ import TubeKit
 extension TileLibrary {
     /// What the library holds, in a line: "Hexagons · 6 ports · 38 tiles".
     var summary: String {
-        let kind = ListFormatter.localizedString(byJoining: shapes.map(\.pluralTitle))
+        let names = shapes.map(\.pluralTitle)
+        let kind = ListFormatter.localizedString(byJoining: [names[0]] + names.dropFirst().map { $0.lowercased() })
         let count = tiles.count == 1 ? "1 tile" : "\(tiles.count) tiles"
         return "\(kind) · \(portsPerEdge) ports · \(count)"
     }
@@ -87,9 +88,16 @@ private struct LibraryRow: View {
     /// The tiles shown as a taste of the library: the first few, or a blank
     /// one of the right shape when it has none.
     private var samples: [Tile] {
-        library.tiles.isEmpty
-            ? [Tile(portsPerEdge: library.portsPerEdge, gauge: library.gauge, shape: library.shapes[0])]
-            : Array(library.tiles.prefix(3))
+        // One of each shape first, blank where the library has none, then
+        // more of its tiles up to three.
+        var tiles = library.shapes.map { shape in
+            library.tiles.first { $0.shape == shape }
+                ?? Tile(portsPerEdge: library.portsPerEdge, gauge: library.gauge, shape: shape)
+        }
+        for tile in library.tiles where tiles.count < 3 && !tiles.contains(where: { $0.id == tile.id }) {
+            tiles.append(tile)
+        }
+        return Array(tiles.prefix(3))
     }
 
     var body: some View {
@@ -110,7 +118,7 @@ private struct LibraryRow: View {
                 Text(library.summary)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .minimumScaleFactor(0.85)
                 if !library.note.isEmpty {
                     Text(library.note)

@@ -219,7 +219,7 @@ public struct Maze: Hashable, Sendable, Codable {
     }
 
     public func contains(_ coord: HexCoord) -> Bool {
-        tiling.ring(of: coord) <= radius && (region?.active.contains(coord) ?? true)
+        tiling.isCell(coord) && tiling.ring(of: coord) <= radius && (region?.active.contains(coord) ?? true)
     }
 
     // MARK: Mask

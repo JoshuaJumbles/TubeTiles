@@ -118,9 +118,13 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
 
     /// The tilings this library can lay: those whose every cell is a shape
     /// it holds. A library with more shapes than a tiling needs can still
-    /// lay it, using only the tiles that fit.
+    /// lay it, using only the tiles that fit. The tilings that use the most
+    /// of its shapes come first.
     public var tilings: [Tiling] {
-        Tiling.allCases.filter { $0.shapes.allSatisfy(shapes.contains) }
+        let able = Tiling.allCases.filter { $0.shapes.allSatisfy(shapes.contains) }
+        return able.enumerated().sorted {
+            ($1.element.shapes.count, $0.offset) < ($0.element.shapes.count, $1.offset)
+        }.map(\.element)
     }
 
     /// Whether tiles of `other` could be saved here: the same port count

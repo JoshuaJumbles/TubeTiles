@@ -64,7 +64,7 @@ enum BuildSheetPDF {
             pages.append(("Tiles", { drawRecipe(slice, in: $0) }))
         }
 
-        let grid = stencilGrid(options: options, shape: sheet.entries.first?.tile.shape ?? .hexagon)
+        let grid = stencilGrid(options: options, shape: largestShape(in: sheet))
         let perStencilPage = grid.columns * grid.rows
         for start in stride(from: 0, to: sheet.entries.count, by: perStencilPage) {
             let slice = Array(sheet.entries[start..<min(start + perStencilPage, sheet.entries.count)])
@@ -168,7 +168,7 @@ enum BuildSheetPDF {
 
         // What the map means, and how big the finished piece is.
         // A tile's size is given flat to flat, which is its height.
-        let unit = options.tileInches / (sheet.entries.first?.tile.shape ?? .hexagon).size.height
+        let unit = options.tileInches / largestShape(in: sheet).size.height
         var lines = [
             "\(sheet.tileCount) tiles, \(sheet.entries.count) different. Finished size about \(inches(across * unit)) by \(inches(tall * unit)) with tiles \(inches(options.tileInches)) flat to flat.",
             "Each cell shows its tile's letter. The triangle is on the edge that the tile's stencil shows at the top.",
@@ -242,6 +242,12 @@ enum BuildSheetPDF {
         var cell: CGSize
     }
 
+    /// The tallest shape among a sheet's tiles. The size asked for is this
+    /// one's, flat to flat; smaller shapes are cut to the same edge length.
+    private static func largestShape(in sheet: BuildSheet) -> TileShape {
+        sheet.entries.map(\.tile.shape).max { $0.size.height < $1.size.height } ?? .hexagon
+    }
+
     /// How many real-size tiles fit on a page, in plain rows and columns.
     private static func stencilGrid(options: Options, shape: TileShape) -> StencilGrid {
         // Points per tile unit. A tile's size is given flat to flat, which
@@ -268,7 +274,7 @@ enum BuildSheetPDF {
             let outline = entry.tile.shape.size
             let half = grid.scale * outline.height / 2
             let center = CGPoint(
-                x: left + column * grid.cell.width + grid.scale * outline.width / 2,
+                x: left + column * grid.cell.width + (grid.cell.width - 12) / 2,
                 y: body.minY + row * grid.cell.height + topMarkRoom + half
             )
             let frame = Frame(center: center, scale: grid.scale)

@@ -206,7 +206,9 @@ final class GeneratorModel {
     /// The kind of tile the maze takes, as in "hexagon tiles with 6 ports
     /// per edge".
     var mazeDescription: String {
-        "\(maze.tiling.shape(of: .origin).tilesTitle) with \(portsPerEdge) ports per edge"
+        let shapes = maze.tiling.shapes
+        let tiles = shapes.count == 1 ? shapes[0].tilesTitle : maze.tiling.title.lowercased()
+        return "\(tiles) with \(portsPerEdge) ports per edge"
     }
 
     /// The tiling a maze grown from a library is laid on: the first one the
@@ -416,6 +418,13 @@ final class GeneratorModel {
     /// Called when the current library changes, here or on another screen.
     func libraryChanged() {
         let current = library.current
+        if maze.cells.isEmpty, maze.tiling != Self.tiling(for: current) {
+            // Nothing to lose, so the empty maze is laid out the way the
+            // library is made for.
+            warnsOfPortCount = false
+            reset(portsPerEdge: current.portsPerEdge, radius: radius, tiling: Self.tiling(for: current))
+            return
+        }
         guard !suits(current) else {
             // Only the warning below is out of date now. Anything else, such
             // as word of a tile just saved and placed, stays up.
@@ -438,7 +447,7 @@ final class GeneratorModel {
             return
         }
         if maze.cells.isEmpty {
-            reset(portsPerEdge: current.portsPerEdge, radius: radius)
+            reset(portsPerEdge: current.portsPerEdge, radius: radius, tiling: Self.tiling(for: current))
         } else {
             warnsOfPortCount = true
             message = "This maze has \(mazeDescription). Clear it to use \u{201C}\(current.name)\u{201D}, which has \(Self.describe(current))."
@@ -451,10 +460,22 @@ final class GeneratorModel {
         reset(portsPerEdge: library.current.portsPerEdge, radius: radius)
     }
 
-    private func reset(portsPerEdge: Int, radius: Int) {
+    /// The tilings the current library can lay, for choosing between.
+    var tilings: [Tiling] { library.current.tilings }
+
+    /// Lays the maze out another way. A cell of one tiling is not a cell
+    /// of another, so the maze starts again empty.
+    func setTiling(_ tiling: Tiling) {
+        guard tiling != maze.tiling, tilings.contains(tiling) else { return }
+        reset(portsPerEdge: library.current.portsPerEdge, radius: radius, tiling: tiling)
+    }
+
+    private func reset(portsPerEdge: Int, radius: Int, tiling chosen: Tiling? = nil) {
         stop()
         let openings = maze.openings
-        let tiling = Self.tiling(for: library.current)
+        // Unless told otherwise, the maze keeps its tiling if the library
+        // can lay it.
+        let tiling = chosen ?? (tilings.contains(maze.tiling) ? maze.tiling : Self.tiling(for: library.current))
         let sameShape = portsPerEdge == maze.portsPerEdge && radius == maze.radius && tiling == maze.tiling
         maze = Maze(
             portsPerEdge: portsPerEdge, radius: radius, mask: maze.mask, gauge: library.current.gauge,

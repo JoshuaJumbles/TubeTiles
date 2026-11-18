@@ -78,7 +78,7 @@ enum SampleData {
         // A second shape.
         let squares = try? model.create(
             name: "Squares", note: "Square tiles.", portsPerEdge: 4,
-            allowedKinds: [.bezier, .corner, .roomSmall, .endSmall, .endMedium], shape: .square
+            allowedKinds: [.bezier, .corner, .roomSmall, .endSmall, .endMedium], shapes: [.square]
         )
         for index in 0..<14 {
             var tile = Tile(portsPerEdge: 4, shape: .square)
@@ -91,7 +91,7 @@ enum SampleData {
         // A shape that only sits two ways.
         let cairo = try? model.create(
             name: "Cairo", note: "Pentagons.", portsPerEdge: 4,
-            allowedKinds: [.bezier, .corner, .roomSmall, .endSmall, .endMedium], shape: .cairo
+            allowedKinds: [.bezier, .corner, .roomSmall, .endSmall, .endMedium], shapes: [.cairo]
         )
         for index in 0..<24 {
             var tile = Tile(portsPerEdge: 4, shape: .cairo)
@@ -99,6 +99,21 @@ enum SampleData {
                 tile.addRandomPipe(kinds: [.bezier, .bezier, .corner], using: &generator)
             }
             if !tile.pipes.isEmpty { try? model.save(tile, to: cairo?.id) }
+        }
+
+        // Two shapes that fit together.
+        let both = try? model.create(
+            name: "Octagons and squares", note: "Two shapes, one look.", portsPerEdge: 3,
+            allowedKinds: [.bezier, .corner, .roomSmall, .endSmall, .endMedium], shapes: [.octagon, .square]
+        )
+        for (shape, count) in [(TileShape.octagon, 18), (.square, 10)] {
+            for index in 0..<count {
+                var tile = Tile(portsPerEdge: 3, shape: shape)
+                for _ in 0..<(2 + index % 4) {
+                    tile.addRandomPipe(kinds: [.bezier, .bezier, .corner], using: &generator)
+                }
+                if !tile.pipes.isEmpty { try? model.save(tile, to: both?.id) }
+            }
         }
 
         if let mixed { model.select(mixed.id) }
