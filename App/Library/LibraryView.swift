@@ -195,10 +195,10 @@ struct LibraryView: View {
                     existing: nil,
                     suggestedName: library.unusedName("New library"),
                     suggestedPorts: current.portsPerEdge
-                ) { name, note, ports, kinds, dead, gauge, shape in
+                ) { name, note, ports, kinds, dead, gauge, shapes in
                     _ = try? library.create(
                         name: name, note: note, portsPerEdge: ports, allowedKinds: kinds, deadSlots: dead,
-                        gauge: gauge, shape: shape
+                        gauge: gauge, shapes: shapes
                     )
                 }
             case let .existing(target):
@@ -278,34 +278,72 @@ struct LibraryView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.top, 40)
                     }
-                    // Profiles with several tiles each get their own headed
-                    // section; profiles with one tile share a section, so a
-                    // library of one-offs stays a compact grid.
-                    let variantGroups = groups.filter { $0.tiles.count > 1 }
-                    let singles = groups.filter { $0.tiles.count == 1 }.flatMap(\.tiles)
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 100, maximum: 150), spacing: 12)],
-                        alignment: .leading, spacing: 14
-                    ) {
-                        ForEach(variantGroups) { group in
-                            Section {
-                                ForEach(group.tiles) { tile in cell(tile) }
-                            } header: {
-                                groupHeader(group.profile.description, badge: "\(group.tiles.count) variants")
+                    // A library of several shapes shows each under its
+                    // own heading.
+                    ForEach(tiles.shapes, id: \.self) { shape in
+                        let ofShape = groups.filter { $0.tiles.first?.shape == shape }
+                        if tiles.shapes.count > 1 {
+                            shapeHeader(shape, count: tiles.tiles(of: shape).count)
+                            if ofShape.isEmpty, !groups.isEmpty || filter == .all {
+                                Text(tiles.tiles(of: shape).isEmpty
+                                    ? "None yet. Choose \(shape.title) in the editor to draw one."
+                                    : "None match this filter.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color.secondary)
                             }
                         }
-                        if !singles.isEmpty {
-                            Section {
-                                ForEach(singles) { tile in cell(tile) }
-                            } header: {
-                                groupHeader(variantGroups.isEmpty ? "Tiles" : "One of a kind", badge: nil)
-                            }
-                        }
+                        tileGrid(ofShape, underShapeHeader: tiles.shapes.count > 1)
                     }
                 }
             }
             .padding(16)
         }
+    }
+
+    /// Profiles with several tiles each get their own headed section;
+    /// profiles with one tile share a section, so a library of one-offs
+    /// stays a compact grid.
+    private func tileGrid(_ groups: [ProfileGroup], underShapeHeader: Bool) -> some View {
+        let variantGroups = groups.filter { $0.tiles.count > 1 }
+        let singles = groups.filter { $0.tiles.count == 1 }.flatMap(\.tiles)
+        return LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 100, maximum: 150), spacing: 12)],
+            alignment: .leading, spacing: 14
+        ) {
+            ForEach(variantGroups) { group in
+                Section {
+                    ForEach(group.tiles) { tile in cell(tile) }
+                } header: {
+                    groupHeader(group.profile.description, badge: "\(group.tiles.count) variants")
+                }
+            }
+            if !singles.isEmpty {
+                Section {
+                    ForEach(singles) { tile in cell(tile) }
+                } header: {
+                    // The shape's own heading already says what these are.
+                    if !variantGroups.isEmpty || !underShapeHeader {
+                        groupHeader(variantGroups.isEmpty ? "Tiles" : "One of a kind", badge: nil)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The heading over one shape's tiles.
+    private func shapeHeader(_ shape: TileShape, count: Int) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(shape.pluralTitle)
+                .font(.title2.bold())
+                .foregroundStyle(Color.primary)
+            Text(count == 1 ? "1 tile" : "\(count) tiles")
+                .font(.subheadline)
+                .foregroundStyle(Color.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 
     private func cell(_ tile: Tile) -> some View {

@@ -7,14 +7,18 @@ struct LibraryEditorView: View {
     var existing: TileLibrary?
     var onSave: (
         _ name: String, _ note: String, _ portsPerEdge: Int, _ allowedKinds: Set<PipeKind>, _ deadSlots: Set<Int>,
-        _ gauge: PipeGauge, _ shape: TileShape
+        _ gauge: PipeGauge, _ shapes: [TileShape]
     ) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var note: String
     @State private var portsPerEdge: Int
-    @State private var shape: TileShape
+    /// The tiling a new library is made for, which decides its shapes.
+    @State private var tiling: Tiling
+    private var shapes: [TileShape] { existing?.shapes ?? tiling.shapes }
+    /// The shape the sample is drawn on.
+    private var shape: TileShape { shapes[0] }
     @State private var allowedKinds: Set<PipeKind>
     /// Slots switched off on every edge.
     @State private var deadSlots: Set<Int>
@@ -32,14 +36,14 @@ struct LibraryEditorView: View {
         existing: TileLibrary?,
         suggestedName: String = "",
         suggestedPorts: Int = 6,
-        onSave: @escaping (String, String, Int, Set<PipeKind>, Set<Int>, PipeGauge, TileShape) -> Void
+        onSave: @escaping (String, String, Int, Set<PipeKind>, Set<Int>, PipeGauge, [TileShape]) -> Void
     ) {
         self.existing = existing
         self.onSave = onSave
         _name = State(initialValue: existing?.name ?? suggestedName)
         _note = State(initialValue: existing?.note ?? "")
         _portsPerEdge = State(initialValue: existing?.portsPerEdge ?? suggestedPorts)
-        _shape = State(initialValue: existing?.shapes.first ?? .hexagon)
+        _tiling = State(initialValue: .hexagonal)
         _allowedKinds = State(initialValue: existing?.allowedKinds ?? Set(PipeKind.allCases))
         _deadSlots = State(initialValue: existing?.deadSlots ?? [])
         let gauge = existing?.gauge ?? .standard
@@ -73,6 +77,12 @@ struct LibraryEditorView: View {
             pipes = [
                 Pipe(.bezier, a: Port(edge: 0, slot: middle), b: Port(edge: 2, slot: last - middle)),
                 Pipe(.bezier, a: Port(edge: 4, slot: middle), b: Port(edge: 1, slot: last - middle)),
+            ]
+        case .octagon:
+            pipes = [
+                Pipe(.bezier, a: Port(edge: 0, slot: middle), b: Port(edge: 4, slot: last - middle)),
+                Pipe(.bezier, a: Port(edge: 7, slot: middle), b: Port(edge: 2, slot: last - middle)),
+                Pipe(.bezier, a: Port(edge: 5, slot: middle), b: Port(edge: 3, slot: last - middle)),
             ]
         }
         for pipe in pipes { try? tile.add(pipe) }
@@ -139,19 +149,18 @@ struct LibraryEditorView: View {
 
                 Section {
                     if existing == nil {
-                        Picker("Tile shape", selection: $shape) {
-                            ForEach(TileShape.allCases, id: \.self) { Text($0.title).tag($0) }
+                        Picker("Tiles", selection: $tiling) {
+                            ForEach(Tiling.allCases, id: \.self) { Text($0.title).tag($0) }
                         }
-                        .pickerStyle(.segmented)
                         Stepper("\(portsPerEdge) ports per edge", value: $portsPerEdge, in: Self.portRange)
                     } else {
-                        LabeledContent("Tile shape", value: shape.title)
+                        LabeledContent("Tiles", value: ListFormatter.localizedString(byJoining: shapes.map(\.pluralTitle)))
                         LabeledContent("Ports per edge", value: "\(portsPerEdge)")
                     }
                 } footer: {
                     Text(existing == nil
-                        ? "Every tile in a library has the same shape and the same number of ports. Neither can be changed later. Mazes grown from the library are laid out to suit the shape. A Cairo tile is a pentagon with five equal edges; it can be flipped but not turned, so a library of them needs more tiles."
-                        : "The shape and port count are fixed once a library exists.")
+                        ? "Every tile in a library has the same number of ports, and the library holds one shape or a set that fit together. Neither can be changed later. A library of octagons and squares can also lay a plain grid of squares. A Cairo tile is a pentagon with five equal edges; it can be flipped but not turned, so a library of them needs more tiles."
+                        : "The shapes and port count are fixed once a library exists.")
                 }
 
                 Section {
@@ -272,7 +281,7 @@ struct LibraryEditorView: View {
                     Button(existing == nil ? "Create" : "Save") {
                         onSave(
                             trimmedName, note.trimmingCharacters(in: .whitespacesAndNewlines),
-                            portsPerEdge, allowedKinds, validDeadSlots, gauge, shape
+                            portsPerEdge, allowedKinds, validDeadSlots, gauge, shapes
                         )
                         dismiss()
                     }

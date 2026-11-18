@@ -97,10 +97,12 @@ public struct BuildSheet: Sendable {
         return text
     }
 
-    /// A tile's pipes as numbers, the same however the pipes are ordered.
+    /// A tile's shape and pipes as numbers, the same however the pipes are
+    /// ordered. The shape leads, so the same pipes on two shapes are two
+    /// stencils.
     private static func key(for tile: Tile) -> [Int] {
         let kinds = PipeKind.allCases
-        return tile.pipes
+        return [tile.shape.edgeCount] + tile.pipes
             .map { [kinds.firstIndex(of: $0.kind) ?? 0, $0.a.edge, $0.a.slot, $0.b.edge, $0.b.slot] }
             .sorted { $0.lexicographicallyPrecedes($1) }
             .flatMap { $0 }

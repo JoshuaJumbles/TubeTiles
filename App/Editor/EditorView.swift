@@ -187,6 +187,16 @@ private struct EditorPanel: View {
                 Button { model.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
                     .disabled(!model.canRedo)
                 Spacer()
+                // Which of the library's shapes is being drawn.
+                if model.shapes.count > 1 {
+                    Picker("Shape", selection: Binding(get: { model.tile.shape }, set: { model.setShape($0) })) {
+                        ForEach(model.shapes, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelStyle(.titleOnly)
+                    .fixedSize()
+                    Spacer()
+                }
                 Button(role: .destructive) { model.deleteSelectedPipe() } label: {
                     Label("Delete pipe", systemImage: "trash")
                 }

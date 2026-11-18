@@ -8,6 +8,7 @@ extension TileShape {
         case .hexagon: "Hexagon"
         case .square: "Square"
         case .cairo: "Cairo"
+        case .octagon: "Octagon"
         }
     }
 
@@ -17,6 +18,7 @@ extension TileShape {
         case .hexagon: "Hexagons"
         case .square: "Squares"
         case .cairo: "Cairo pentagons"
+        case .octagon: "Octagons"
         }
     }
 
@@ -26,7 +28,18 @@ extension TileShape {
         case .hexagon: "hexagon tiles"
         case .square: "square tiles"
         case .cairo: "Cairo tiles"
+        case .octagon: "octagon tiles"
         }
+    }
+}
+
+extension Tiling {
+    /// The tiling named by the shapes it is made of, as in "Octagons and
+    /// squares".
+    var title: String {
+        let names = shapes.map(\.pluralTitle)
+        let rest = names.dropFirst().map { $0.lowercased() }
+        return ListFormatter.localizedString(byJoining: [names[0]] + rest)
     }
 }
 
