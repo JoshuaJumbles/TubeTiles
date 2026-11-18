@@ -116,7 +116,9 @@ public struct Maze: Hashable, Sendable, Codable {
     }
 
     /// The sizes the maze's pipes are drawn at. Pipe widths are the same in
-    /// every cell, whatever its shape.
+    /// every cell, whatever its shape, and widths are all this is for: the
+    /// line a pipe follows depends on its cell's shape, so drawing one
+    /// needs `style(at:)`.
     public var style: TileStyle { style(at: .origin) }
 
     /// The edges of a cell, by number.

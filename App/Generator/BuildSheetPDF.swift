@@ -123,7 +123,6 @@ enum BuildSheetPDF {
             ))
         }
 
-        let style = maze.style
         let weave = maze.weave()
         context.saveGState()
         if !frameRects.isEmpty { context.clip(to: frameRects) }
@@ -134,7 +133,7 @@ enum BuildSheetPDF {
             context.addPath(outline)
             context.clip()
             if let placed = maze.cells[coord] {
-                drawPipes(placed.oriented.pipes, style: style, frame: cell, in: context, ink: faint, crossings: weave.crossings(at: coord))
+                drawPipes(placed.oriented.pipes, style: maze.style(at: coord), frame: cell, in: context, ink: faint, crossings: weave.crossings(at: coord))
             }
             context.restoreGState()
             context.addPath(outline)

@@ -75,7 +75,7 @@ public enum MazeSVG {
         func data(for path: MazePath) -> String {
             var commands: [String] = []
             for step in path.steps {
-                var segments = PipeShape(step.pipe, style: style).segments
+                var segments = PipeShape(step.pipe, style: maze.style(at: step.coord)).segments
                 if step.runsBackwards {
                     segments = segments.reversed().map { segment in
                         switch segment {
@@ -163,7 +163,7 @@ public enum MazeSVG {
         lines.append(#"  <g id="rooms">"#)
         for coord in maze.cells.keys.sorted() {
             for pipe in maze.cells[coord]?.oriented.pipes ?? [] {
-                guard let room = PipeShape(pipe, style: style).room else { continue }
+                guard let room = PipeShape(pipe, style: maze.style(at: coord)).room else { continue }
                 let center = place(room.center, in: coord)
                 let position = #"cx="\#(number(center.x))" cy="\#(number(center.y))""#
                 lines.append(#"    <circle \#(position) r="\#(number(room.diameter / 2 * scale))" fill="\#(options.ink)"/>"#)
@@ -196,7 +196,7 @@ public enum MazeSVG {
 
         lines.append(#"  <g id="crossings" fill="none" stroke-linecap="butt" stroke-linejoin="round">"#)
         for crossing in weave.crossings {
-            let line = Polyline(PipeShape(crossing.over, style: style))
+            let line = Polyline(PipeShape(crossing.over, style: maze.style(at: crossing.coord)))
             let half = crossing.bridgeHalfLength(style: style)
             let points = line.slice(from: crossing.overDistance - half, to: crossing.overDistance + half)
                 .map { text(place($0, in: crossing.coord)) }

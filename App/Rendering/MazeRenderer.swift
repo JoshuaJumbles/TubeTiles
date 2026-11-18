@@ -131,6 +131,8 @@ enum MazeRenderer {
                 }
                 var clipped = context
                 clipped.clip(to: hex)
+                // A pipe's line depends on the shape of its own cell.
+                let style = maze.style(at: coord)
                 for pipe in placed.oriented.pipes {
                     TileRenderer.draw(
                         pipe, style: style, in: frame, context: &clipped,
