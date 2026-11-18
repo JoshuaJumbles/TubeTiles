@@ -713,7 +713,7 @@ final class GeneratorModel {
     /// `local` is measured from the tile's centre, in tile units.
     private func toggleKept(at coord: HexCoord, local: Point) {
         guard let placed = maze.cells[coord] else { return }
-        let style = maze.style
+        let style = maze.style(at: coord)
         let nearest = placed.oriented.pipes.min {
             PipeShape($0, style: style).distance(to: local) < PipeShape($1, style: style).distance(to: local)
         }

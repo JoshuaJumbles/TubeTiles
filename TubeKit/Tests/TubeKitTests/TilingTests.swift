@@ -849,3 +849,37 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
         for (coord, placed) in maze.cells { #expect(placed.source.shape == tiling.shape(of: coord)) }
     }
 }
+
+/// Pipes are drawn to the shape of their own cell.
+@Suite struct MixedDrawingTests {
+    /// The first and last points of the first wall in a maze's drawing.
+    private func ends(of svg: String) throws -> (Point, Point) {
+        let line = try #require(svg.split(separator: "\n").first { $0.contains(#"id="wall-1""#) })
+        let data = try #require(line.split(separator: "\"").last { $0.hasPrefix("M ") })
+        let numbers = data.split { !"-.0123456789".contains($0) }.compactMap { Double($0) }
+        try #require(numbers.count >= 4)
+        return (
+            Point(x: numbers[0], y: numbers[1]),
+            Point(x: numbers[numbers.count - 2], y: numbers[numbers.count - 1])
+        )
+    }
+
+    @Test(arguments: [HexCoord(q: 1, r: 1), HexCoord(q: 0, r: 0), HexCoord(q: -1, r: 1), HexCoord(q: 2, r: 0)])
+    func aLonePipeIsDrawnBetweenItsOwnCellsPorts(coord: HexCoord) throws {
+        // One pipe straight across one cell, in a square and in an octagon.
+        // Its drawing has to start and stop as far apart as that cell's two
+        // ports are, which is one unit in a square and far more in an
+        // octagon.
+        let tiling = Tiling.truncatedSquare
+        let shape = tiling.shape(of: coord)
+        let from = TubeKit.Port(edge: 0, slot: 1)
+        let to = TubeKit.Port(edge: shape.edgeCount / 2, slot: 1)
+        let tile = try Tile(portsPerEdge: 3, shape: shape, pipes: [Pipe(.bezier, a: from, b: to)])
+        let maze = try #require(Maze(portsPerEdge: 3, radius: 2, tiling: tiling).placing(PlacedTile(tile), at: coord))
+
+        let apart = shape.position(of: from, portsPerEdge: 3).distance(to: shape.position(of: to, portsPerEdge: 3))
+        #expect(abs(apart - shape.inradius * 2) < 1e-9)
+        let drawn = try ends(of: MazeSVG.render(maze))
+        #expect(abs(drawn.0.distance(to: drawn.1) - apart * MazeSVG.Options().cellSize) < 0.05)
+    }
+}
