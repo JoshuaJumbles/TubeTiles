@@ -89,7 +89,7 @@ final class LibraryModel {
     ) throws -> TileLibrary {
         let library = TileLibrary(
             name: name, note: note, portsPerEdge: portsPerEdge, allowedKinds: allowedKinds, deadSlots: deadSlots,
-            gauge: gauge, shape: shape
+            gauge: gauge, shapes: [shape]
         )
         try commit(library)
         select(library.id)

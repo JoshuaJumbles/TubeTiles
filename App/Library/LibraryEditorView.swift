@@ -39,7 +39,7 @@ struct LibraryEditorView: View {
         _name = State(initialValue: existing?.name ?? suggestedName)
         _note = State(initialValue: existing?.note ?? "")
         _portsPerEdge = State(initialValue: existing?.portsPerEdge ?? suggestedPorts)
-        _shape = State(initialValue: existing?.shape ?? .hexagon)
+        _shape = State(initialValue: existing?.shapes.first ?? .hexagon)
         _allowedKinds = State(initialValue: existing?.allowedKinds ?? Set(PipeKind.allCases))
         _deadSlots = State(initialValue: existing?.deadSlots ?? [])
         let gauge = existing?.gauge ?? .standard

@@ -135,13 +135,13 @@ struct LibraryView: View {
                     presenting: incoming
                 ) { found in
                     Button("Add as a new library") { addIncoming() }
-                    if found.portsPerEdge == current.portsPerEdge, found.shape == current.shape {
+                    if current.canTakeTiles(from: found) {
                         Button("Add its tiles to \u{201C}\(current.name)\u{201D}") { mergeIncoming(into: current) }
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: { found in
-                    Text("\(Self.count(found.tiles.count)), \(found.shape.tilesTitle), \(found.portsPerEdge) ports per edge."
-                        + (found.portsPerEdge == current.portsPerEdge && found.shape == current.shape
+                    Text("\(Self.count(found.tiles.count)), \(found.tilesTitle), \(found.portsPerEdge) ports per edge."
+                        + (current.canTakeTiles(from: found)
                             ? " Adding its tiles to \u{201C}\(current.name)\u{201D} leaves out any already there and keeps this library\u{2019}s rules."
                             : ""))
                 }
@@ -365,7 +365,7 @@ struct LibraryView: View {
 
     private func portSummary(for tiles: TileLibrary) -> String {
         // Hexagons are the usual shape, so only another one is named.
-        let shape = tiles.shape == .hexagon ? "" : tiles.shape.tilesTitle.capitalizedFirst + ", "
+        let shape = tiles.shapes == [.hexagon] ? "" : tiles.tilesTitle.capitalizedFirst + ", "
         guard !tiles.deadPorts.isEmpty else { return shape + "\(tiles.portsPerEdge) ports per edge" }
         guard let live = tiles.liveSlotCount else {
             return shape + "\(tiles.portsPerEdge) ports per edge, some switched off"

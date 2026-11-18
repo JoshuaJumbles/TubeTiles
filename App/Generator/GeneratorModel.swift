@@ -107,7 +107,7 @@ final class GeneratorModel {
         } else {
             start = Maze(
                 portsPerEdge: library.current.portsPerEdge, radius: 3, gauge: library.current.gauge,
-                tiling: Tiling(shape: library.current.shape)
+                tiling: Self.tiling(for: library.current)
             )
         }
         maze = start
@@ -209,14 +209,20 @@ final class GeneratorModel {
         "\(maze.tiling.shape(of: .origin).tilesTitle) with \(portsPerEdge) ports per edge"
     }
 
+    /// The tiling a maze grown from a library is laid on: the first one the
+    /// library has every shape for.
+    static func tiling(for library: TileLibrary) -> Tiling {
+        library.tilings.first ?? Tiling(shape: library.shapes[0])
+    }
+
     static func describe(_ library: TileLibrary) -> String {
-        "\(library.shape.tilesTitle) with \(library.portsPerEdge) ports per edge"
+        "\(library.tilesTitle) with \(library.portsPerEdge) ports per edge"
     }
 
     /// Whether a library's tiles could go in this maze: the same shape of
     /// tile and the same number of ports.
     private func suits(_ library: TileLibrary) -> Bool {
-        library.portsPerEdge == portsPerEdge && Tiling(shape: library.shape) == maze.tiling
+        library.portsPerEdge == portsPerEdge && library.tilings.contains(maze.tiling)
     }
 
     /// The library the generator draws from: the current one, provided its
@@ -448,7 +454,7 @@ final class GeneratorModel {
     private func reset(portsPerEdge: Int, radius: Int) {
         stop()
         let openings = maze.openings
-        let tiling = Tiling(shape: library.current.shape)
+        let tiling = Self.tiling(for: library.current)
         let sameShape = portsPerEdge == maze.portsPerEdge && radius == maze.radius && tiling == maze.tiling
         maze = Maze(
             portsPerEdge: portsPerEdge, radius: radius, mask: maze.mask, gauge: library.current.gauge,

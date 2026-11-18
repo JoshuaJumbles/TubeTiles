@@ -54,17 +54,24 @@ public struct MazeGenerator: Sendable {
         }
     }
 
-    /// Every distinct way of placing an ordinary library tile on one cell.
+    /// Every distinct way of placing an ordinary library tile on a cell of
+    /// its shape.
     public let options: [PlacedTile]
     /// Placements of library tiles that have exactly one dead end. These are
     /// only used on goal cells, so dead ends appear where they were asked
     /// for and nowhere else.
     public let goalOptions: [PlacedTile]
+    /// The same placements by the shape of cell they go in, so a cell is
+    /// only ever offered tiles of its own shape.
+    private let optionsByShape: [TileShape: [PlacedTile]]
+    private let goalOptionsByShape: [TileShape: [PlacedTile]]
     /// Nil restricts the maze to library tiles only.
     public var synthesis: Synthesis?
 
     public init(tiles: [Tile], synthesis: Synthesis? = Synthesis()) {
-        var seen: Set<Set<Pipe>> = []
+        // Two shapes can have pipes between the same ports, so what has
+        // been seen is kept by shape.
+        var seen: [TileShape: Set<Set<Pipe>>] = [:]
         var options: [PlacedTile] = []
         var goalOptions: [PlacedTile] = []
         for tile in tiles where !tile.pipes.isEmpty {
@@ -74,7 +81,7 @@ public struct MazeGenerator: Sendable {
             guard ends <= 1 else { continue }
             for transform in tile.shape.transforms {
                 let placed = PlacedTile(tile, transform: transform)
-                guard seen.insert(Set(placed.oriented.pipes)).inserted else { continue }
+                guard seen[tile.shape, default: []].insert(Set(placed.oriented.pipes)).inserted else { continue }
                 if ends == 1 {
                     goalOptions.append(placed)
                 } else {
@@ -84,6 +91,8 @@ public struct MazeGenerator: Sendable {
         }
         self.options = options
         self.goalOptions = goalOptions
+        optionsByShape = Dictionary(grouping: options) { $0.source.shape }
+        goalOptionsByShape = Dictionary(grouping: goalOptions) { $0.source.shape }
         self.synthesis = synthesis
     }
 
@@ -105,8 +114,9 @@ public struct MazeGenerator: Sendable {
         let edges = maze.edges(at: coord)
         let required = edges.map { maze.requirement(at: coord, edge: $0) }
         let allowed = edges.map { maze.allowedValue(at: coord, edge: $0) }
-        return (maze.goals.contains(coord) ? goalOptions : options).filter { option in
-            guard option.code.values.count == edges.count else { return false }
+        let shape = maze.tiling.shape(of: coord)
+        let candidates = (maze.goals.contains(coord) ? goalOptionsByShape : optionsByShape)[shape] ?? []
+        return candidates.filter { option in
             for edge in edges {
                 if let value = required[edge], value != option.code.values[edge] { return false }
                 if option.code.values[edge] & ~allowed[edge] != 0 { return false }

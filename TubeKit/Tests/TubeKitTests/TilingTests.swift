@@ -185,7 +185,7 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
     }
 
     @Test func aLibraryHoldsOneShape() throws {
-        var squares = TileLibrary(name: "Squares", portsPerEdge: 3, deadSlots: [0], shape: .square)
+        var squares = TileLibrary(name: "Squares", portsPerEdge: 3, deadSlots: [0], shapes: [.square])
         #expect(squares.deadPorts.count == 8)
         var random = SeededGenerator(seed: 3)
         for _ in 0..<6 {
@@ -412,7 +412,7 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
             == tile.pipes.sorted { ($0.a, $0.b) < ($1.a, $1.b) })
         #expect(tile.profile == flipped.profile)
 
-        var library = TileLibrary(name: "Cairo", portsPerEdge: 3, shape: .cairo)
+        var library = TileLibrary(name: "Cairo", portsPerEdge: 3, shapes: [.cairo])
         library.save(tile)
         let again = Tile(portsPerEdge: 3, shape: .cairo, uncheckedPipes: flipped.pipes)
         #expect(library.twin(of: again)?.tile.id == tile.id)
@@ -580,5 +580,121 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
             }
         }
         #expect(sealed >= 3)
+    }
+}
+
+/// A library that holds tiles of more than one shape.
+@Suite struct MixedLibraryTests {
+    private func randomTiles(_ shape: TileShape, count: Int, seed: UInt64) -> [Tile] {
+        var random = SeededGenerator(seed: seed)
+        var tiles: [Tile] = []
+        while tiles.count < count {
+            var tile = Tile(portsPerEdge: 3, shape: shape)
+            for _ in 0..<(1 + tiles.count % 3) {
+                tile.addRandomPipe(kinds: [.bezier, .corner], using: &random)
+            }
+            if !tile.pipes.isEmpty { tiles.append(tile) }
+        }
+        return tiles
+    }
+
+    private func mixed() -> TileLibrary {
+        var library = TileLibrary(name: "Mixed", portsPerEdge: 3, shapes: [.hexagon, .square])
+        for tile in randomTiles(.hexagon, count: 12, seed: 1) + randomTiles(.square, count: 9, seed: 2) {
+            library.save(tile)
+        }
+        return library
+    }
+
+    @Test func aLibraryKeepsItsTilesByShape() throws {
+        let library = mixed()
+        #expect(library.shapes == [.hexagon, .square])
+        #expect(library.tiles(of: .hexagon).count == 12)
+        #expect(library.tiles(of: .square).count == 9)
+        #expect(library.tiles(of: .cairo).isEmpty)
+        // No shape twice, and never none.
+        #expect(TileLibrary(name: "A", portsPerEdge: 3, shapes: [.square, .square]).shapes == [.square])
+        #expect(TileLibrary(name: "B", portsPerEdge: 3, shapes: []).shapes == [.hexagon])
+
+        let loaded = try JSONDecoder().decode(TileLibrary.self, from: JSONEncoder().encode(library))
+        #expect(loaded == library)
+    }
+
+    @Test func aLibraryOfOneShapeIsStoredAsItAlwaysWas() throws {
+        func keys(_ library: TileLibrary) throws -> Set<String> {
+            let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(library))
+            return Set((object as? [String: Any] ?? [:]).keys)
+        }
+        let hexes = try keys(TileLibrary(name: "Hexes", portsPerEdge: 3))
+        #expect(!hexes.contains("shape") && !hexes.contains("shapes"))
+        let squares = try keys(TileLibrary(name: "Squares", portsPerEdge: 3, shapes: [.square]))
+        #expect(squares.contains("shape") && !squares.contains("shapes"))
+        let both = try keys(mixed())
+        #expect(both.contains("shapes") && !both.contains("shape"))
+    }
+
+    @Test func aLibraryLaysEveryTilingItHasTheShapesFor() {
+        #expect(mixed().tilings == [.hexagonal, .square])
+        #expect(TileLibrary(name: "Squares", portsPerEdge: 3, shapes: [.square]).tilings == [.square])
+        for tiling in Tiling.allCases {
+            #expect(Set(tiling.cells(radius: 2).map(tiling.shape(of:))) == Set(tiling.shapes))
+            #expect(TileLibrary(name: "One", portsPerEdge: 3, shapes: tiling.shapes).tilings == [tiling])
+        }
+    }
+
+    @Test func deadSlotsApplyToEveryEdgeOfEveryShape() {
+        var library = mixed()
+        library.setDeadSlots([0])
+        #expect(library.deadSlots == [0, 2])
+        for shape in library.shapes {
+            for edge in 0..<shape.edgeCount {
+                #expect(!library.isLive(TubeKit.Port(edge: edge, slot: 0)))
+                #expect(library.isLive(TubeKit.Port(edge: edge, slot: 1)))
+            }
+        }
+    }
+
+    @Test func twinsAndMergingKeepToOneShape() throws {
+        var library = mixed()
+        // The same pipes on a hexagon and on a square are different tiles.
+        let pipe = Pipe(.bezier, a: TubeKit.Port(edge: 0, slot: 1), b: TubeKit.Port(edge: 2, slot: 1))
+        let onSquare = try Tile(portsPerEdge: 3, shape: .square, pipes: [pipe])
+        let onHexagon = try Tile(portsPerEdge: 3, shape: .hexagon, pipes: [pipe])
+        library.save(onSquare)
+        #expect(library.twin(of: onHexagon) == nil)
+        let again = try Tile(portsPerEdge: 3, shape: .square, pipes: [pipe])
+        #expect(library.twin(of: again)?.tile.id == onSquare.id)
+
+        // Only the squares of a mixed library go into a library of squares.
+        var squares = TileLibrary(name: "Squares", portsPerEdge: 3, shapes: [.square])
+        #expect(squares.canTakeTiles(from: library))
+        let result = squares.merge(library)
+        #expect(result.added == squares.tiles.count)
+        #expect(result.added + result.skipped == library.tiles.count)
+        #expect(result.skipped >= 12)
+        #expect(squares.tiles.allSatisfy { $0.shape == .square })
+
+        let cairo = TileLibrary(name: "Cairo", portsPerEdge: 3, shapes: [.cairo])
+        #expect(!cairo.canTakeTiles(from: library))
+        #expect(!TileLibrary(name: "Four", portsPerEdge: 4, shapes: [.square]).canTakeTiles(from: library))
+    }
+
+    @Test(arguments: [Tiling.hexagonal, .square])
+    func aCellIsOnlyOfferedTilesOfItsOwnShape(tiling: Tiling) {
+        // Library tiles only, so every tile placed came from the library.
+        let library = TileLibrary(name: "Mixed", portsPerEdge: 3, shapes: [.hexagon, .square])
+        let tiles = randomTiles(.hexagon, count: 60, seed: 3) + randomTiles(.square, count: 60, seed: 4)
+        let generator = MazeGenerator(tiles: tiles, synthesis: nil)
+        #expect(Set(generator.options.map(\.source.shape)) == [.hexagon, .square])
+        #expect(library.tilings.contains(tiling))
+
+        var maze = Maze(portsPerEdge: 3, radius: 2, tiling: tiling)
+        var random = SeededGenerator(seed: 5)
+        generator.fill(&maze, symmetry: .none, using: &random)
+        #expect(maze.cells.count > 3)
+        for (coord, placed) in maze.cells {
+            #expect(placed.source.shape == tiling.shape(of: coord))
+            #expect(maze.fits(placed.code, at: coord))
+        }
     }
 }

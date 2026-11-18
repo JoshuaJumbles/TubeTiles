@@ -4,7 +4,7 @@ import TubeKit
 extension TileLibrary {
     /// What the library holds, in a line: "Hexagons · 6 ports · 38 tiles".
     var summary: String {
-        let kind = shape.pluralTitle
+        let kind = ListFormatter.localizedString(byJoining: shapes.map(\.pluralTitle))
         let count = tiles.count == 1 ? "1 tile" : "\(tiles.count) tiles"
         return "\(kind) · \(portsPerEdge) ports · \(count)"
     }
@@ -88,7 +88,7 @@ private struct LibraryRow: View {
     /// one of the right shape when it has none.
     private var samples: [Tile] {
         library.tiles.isEmpty
-            ? [Tile(portsPerEdge: library.portsPerEdge, gauge: library.gauge, shape: library.shape)]
+            ? [Tile(portsPerEdge: library.portsPerEdge, gauge: library.gauge, shape: library.shapes[0])]
             : Array(library.tiles.prefix(3))
     }
 

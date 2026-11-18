@@ -77,6 +77,16 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         }
     }
 
+    /// The shapes of the tiling's cells, each once. A library has to hold
+    /// all of them to lay it.
+    public var shapes: [TileShape] {
+        switch self {
+        case .hexagonal: [.hexagon]
+        case .square: [.square]
+        case .cairo: [.cairo]
+        }
+    }
+
     /// The shape of a cell. Every cell is alike in the tilings so far; one
     /// that mixes shapes would answer by cell.
     public func shape(of cell: HexCoord) -> TileShape {

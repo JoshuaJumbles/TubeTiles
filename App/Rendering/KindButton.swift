@@ -30,6 +30,15 @@ extension TileShape {
     }
 }
 
+extension TileLibrary {
+    /// What the library holds, as in "square tiles" or "octagon and square
+    /// tiles".
+    var tilesTitle: String {
+        guard shapes.count > 1 else { return shapes[0].tilesTitle }
+        return ListFormatter.localizedString(byJoining: shapes.map { $0.title.lowercased() }) + " tiles"
+    }
+}
+
 extension PipeKind {
     /// A short name for buttons and lists.
     var shortTitle: String {
