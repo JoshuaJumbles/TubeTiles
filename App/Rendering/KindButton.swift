@@ -11,6 +11,15 @@ extension TileShape {
         }
     }
 
+    /// Several of the shape, as a heading or in a summary.
+    var pluralTitle: String {
+        switch self {
+        case .hexagon: "Hexagons"
+        case .square: "Squares"
+        case .cairo: "Cairo pentagons"
+        }
+    }
+
     /// What a library of this shape holds, as in "square tiles".
     var tilesTitle: String {
         switch self {
