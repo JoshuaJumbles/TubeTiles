@@ -143,12 +143,17 @@ extension Tile {
                 let gap = q - p
                 let t = (gap.x * s.y - gap.y * s.x) / cross
                 let u = (gap.x * r.y - gap.y * r.x) / cross
-                // Half-open ranges so a crossing exactly on a joint between
-                // two pieces is counted once.
-                guard t >= 0, t < 1, u >= 0, u < 1 else { continue }
+                // A crossing exactly on a joint between two pieces can fall a
+                // rounding error outside both of them, so each piece reaches
+                // a hair past its ends. A crossing found twice that way is
+                // counted once.
+                let slack = 1e-9
+                guard t >= -slack, t <= 1 + slack, u >= -slack, u <= 1 + slack else { continue }
+                let point = p + r * min(max(t, 0), 1)
+                if hits.contains(where: { $0.point.distance(to: point) < 1e-6 }) { continue }
                 let lengths = (r.x * r.x + r.y * r.y).squareRoot() * (s.x * s.x + s.y * s.y).squareRoot()
                 hits.append((
-                    p + r * t,
+                    point,
                     first.distances[i - 1] + (first.distances[i] - first.distances[i - 1]) * t,
                     second.distances[j - 1] + (second.distances[j] - second.distances[j - 1]) * u,
                     lengths > 0 ? abs(cross) / lengths : 1

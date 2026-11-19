@@ -2,12 +2,15 @@ import SwiftUI
 import TubeKit
 
 extension TileLibrary {
-    /// What the library holds, in a line: "Hexagons · 6 ports · 38 tiles".
-    var summary: String {
+    /// The library's shapes, as in "Hexagons and triangles".
+    var shapesSummary: String {
         let names = shapes.map(\.pluralTitle)
-        let kind = ListFormatter.localizedString(byJoining: [names[0]] + names.dropFirst().map { $0.lowercased() })
-        let count = tiles.count == 1 ? "1 tile" : "\(tiles.count) tiles"
-        return "\(kind) · \(portsPerEdge) ports · \(count)"
+        return ListFormatter.localizedString(byJoining: [names[0]] + names.dropFirst().map { $0.lowercased() })
+    }
+
+    /// How much the library holds, as in "6 ports · 38 tiles".
+    var sizeSummary: String {
+        "\(portsPerEdge) ports · " + (tiles.count == 1 ? "1 tile" : "\(tiles.count) tiles")
     }
 }
 
@@ -115,11 +118,25 @@ private struct LibraryRow: View {
                 Text(library.name)
                     .font(.headline)
                     .lineLimit(1)
-                Text(library.summary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
+                // One shape fits on a line with the counts; several get a
+                // line of their own.
+                if library.shapes.count == 1 {
+                    Text(library.shapesSummary + " · " + library.sizeSummary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                } else {
+                    Text(library.shapesSummary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Text(library.sizeSummary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 if !library.note.isEmpty {
                     Text(library.note)
                         .font(.footnote)

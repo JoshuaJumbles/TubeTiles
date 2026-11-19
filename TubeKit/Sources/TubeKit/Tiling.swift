@@ -74,6 +74,15 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     /// octagon has `q` and `r` both even, a square has both odd, and no
     /// cell has one of each.
     case truncatedSquare
+    /// Hexagons that touch only at their corners, with a triangle on every
+    /// edge.
+    ///
+    /// The hexagons sit in rows, each row half a step along from the one
+    /// above. A cell's `q` is its hexagon's place in the row. Its `r` is
+    /// three times the row, plus one for the triangle on the hexagon's top
+    /// edge or two for the triangle on its bottom edge. The other four
+    /// triangles round a hexagon belong to its neighbours.
+    case trihexagonal
 
     /// One tiling with cells of the given shape.
     public init(shape: TileShape) {
@@ -82,6 +91,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .square: self = .square
         case .cairo: self = .cairo
         case .octagon: self = .truncatedSquare
+        case .triangle: self = .trihexagonal
         }
     }
 
@@ -93,6 +103,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .square: [.square]
         case .cairo: [.cairo]
         case .truncatedSquare: [.octagon, .square]
+        case .trihexagonal: [.hexagon, .triangle]
         }
     }
 
@@ -103,6 +114,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .square: .square
         case .cairo: .cairo
         case .truncatedSquare: cell.q & 1 == 0 ? .octagon : .square
+        case .trihexagonal: Self.trihexParts(cell).kind == 0 ? .hexagon : .triangle
         }
     }
 
@@ -111,6 +123,20 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     public func isCell(_ cell: HexCoord) -> Bool {
         self != .truncatedSquare || (cell.q & 1) == (cell.r & 1)
     }
+
+    /// A hexagon-and-triangle cell's hexagon, and which of its three cells
+    /// it is: 0 the hexagon, 1 the triangle above, 2 the triangle below.
+    private static func trihexParts(_ cell: HexCoord) -> (column: Int, row: Int, kind: Int) {
+        let row = Int((Double(cell.r) / 3).rounded(.down))
+        return (cell.q, row, cell.r - 3 * row)
+    }
+
+    private static func trihexCell(column: Int, row: Int, kind: Int) -> HexCoord {
+        HexCoord(q: column, r: 3 * row + kind)
+    }
+
+    /// From a hexagon's centre to the centre of a triangle on its edge.
+    private static let trihexReach = TileShape.hexagon.inradius + TileShape.triangle.inradius
 
     /// Distance between neighbouring octagons: twice an octagon's inradius.
     static let octagonPitch = 1 + (2.0).squareRoot()
@@ -159,6 +185,15 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             return Point(x: x, y: y + (parts.second ? -reach : reach))
         case .truncatedSquare:
             return Point(x: Double(cell.q), y: Double(cell.r)) * (Self.octagonPitch / 2)
+        case .trihexagonal:
+            // Hexagons are two units apart along a row, and each row is one
+            // unit along and root three down from the last.
+            let parts = Self.trihexParts(cell)
+            let hexagon = Point(
+                x: 2 * Double(parts.column) + Double(parts.row), y: (3.0).squareRoot() * Double(parts.row)
+            )
+            let lift = parts.kind == 0 ? 0 : (parts.kind == 1 ? -Self.trihexReach : Self.trihexReach)
+            return Point(x: hexagon.x, y: hexagon.y + lift)
         }
     }
 
@@ -178,6 +213,10 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             // A square stands on its corner, so its top edge faces up and
             // to the right.
             return cell.q & 1 == 0 ? 0 : .pi / 4
+        case .trihexagonal:
+            // The triangle above a hexagon points up, which is half a turn
+            // from the way a triangle is drawn.
+            return Self.trihexParts(cell).kind == 1 ? .pi : 0
         }
     }
 
@@ -217,6 +256,22 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             // up-left, each onto a slanted edge of an octagon.
             let step = [(1, -1), (1, 1), (-1, 1), (-1, -1)][edge]
             return (HexCoord(q: cell.q + step.0, r: cell.r + step.1), [5, 7, 1, 3][edge])
+        case .trihexagonal:
+            let parts = Self.trihexParts(cell)
+            // How far away the neighbour's hexagon is, which of its cells,
+            // and which edge.
+            let table: [(column: Int, row: Int, kind: Int, edge: Int)]
+            switch parts.kind {
+            // Round a hexagon the triangles point up and down by turns.
+            case 0: table = [(0, 0, 1, 0), (1, -1, 2, 2), (0, 1, 1, 1), (0, 0, 2, 0), (-1, 1, 1, 2), (0, -1, 2, 1)]
+            case 1: table = [(0, 0, 0, 0), (0, -1, 0, 2), (1, -1, 0, 4)]
+            default: table = [(0, 0, 0, 3), (0, 1, 0, 5), (-1, 1, 0, 1)]
+            }
+            let other = table[edge]
+            return (
+                Self.trihexCell(column: parts.column + other.column, row: parts.row + other.row, kind: other.kind),
+                other.edge
+            )
         }
     }
 
@@ -251,6 +306,26 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             // is on the ring of the furthest octagon it touches, which
             // leaves a region with only the squares it surrounds.
             return (max(abs(cell.q), abs(cell.r)) + 1) / 2
+        case .trihexagonal:
+            // By hexagons, so a region is a hexagon of them. A triangle is
+            // on the ring of the furthest hexagon it touches, which leaves
+            // a region with only the triangles its hexagons close in.
+            let parts = Self.trihexParts(cell)
+            func ring(_ column: Int, _ row: Int) -> Int { max(abs(column), abs(row), abs(column + row)) }
+            switch parts.kind {
+            case 0:
+                return ring(parts.column, parts.row)
+            case 1:
+                return max(
+                    ring(parts.column, parts.row), ring(parts.column, parts.row - 1),
+                    ring(parts.column + 1, parts.row - 1)
+                )
+            default:
+                return max(
+                    ring(parts.column, parts.row), ring(parts.column, parts.row + 1),
+                    ring(parts.column - 1, parts.row + 1)
+                )
+            }
         }
     }
 
@@ -267,6 +342,9 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             // Addresses go in half steps.
             rows = (-2 * radius)...(2 * radius)
             columns = rows
+        } else if self == .trihexagonal {
+            // Three cells to a hexagon.
+            rows = (-3 * radius - 3)...(3 * radius + 5)
         }
         return columns.flatMap { q in
             rows.map { HexCoord(q: q, r: $0) }
@@ -279,6 +357,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .square: (2 * radius + 1) * (2 * radius + 1)
         case .cairo: 8 * (radius + 1) * (radius + 1)
         case .truncatedSquare: (2 * radius + 1) * (2 * radius + 1) + 4 * radius * radius
+        // A hexagon of hexagons, and the triangles between them.
+        case .trihexagonal: 3 * radius * (radius + 1) + 1 + 6 * radius * radius
         }
     }
 
@@ -298,6 +378,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .truncatedSquare:
             let side = Double(2 * radius + 1) * Self.octagonPitch
             return (side, side)
+        case .trihexagonal:
+            return (Double(4 * radius + 2), (3.0).squareRoot() * Double(2 * radius + 1))
         }
     }
 
@@ -326,6 +408,10 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
                     // An octagon reaches half a pitch either side of its
                     // centre.
                     furthest = max(furthest, abs(x) / Self.octagonPitch - 0.5, abs(y) / Self.octagonPitch - 0.5)
+                case .trihexagonal:
+                    let row = y / (3.0).squareRoot()
+                    let column = (x - row) / 2
+                    furthest = max(furthest, abs(column), abs(row), abs(column + row))
                 }
             }
         }
@@ -341,6 +427,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .cairo: Double(columns) * Self.cairoPitch / 2
         // Columns of octagons.
         case .truncatedSquare: Double(columns) * Self.octagonPitch
+        // Hexagons in a row.
+        case .trihexagonal: Double(columns) * 2
         }
     }
 
@@ -351,6 +439,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .square: Int(width.rounded())
         case .cairo: Int((width * 2 / Self.cairoPitch).rounded())
         case .truncatedSquare: Int((width / Self.octagonPitch).rounded())
+        case .trihexagonal: Int((width / 2).rounded())
         }
     }
 
@@ -359,7 +448,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     /// The symmetries a maze on this tiling can keep.
     public var symmetries: [Symmetry] {
         switch self {
-        case .hexagonal: [.none, .mirror, .half, .third, .sixth]
+        // The centre is a hexagon either way.
+        case .hexagonal, .trihexagonal: [.none, .mirror, .half, .third, .sixth]
         // The centre is an octagon, which has every symmetry a square has.
         case .square, .truncatedSquare: [.none, .mirror, .half, .quarter]
         // Turns only: the tiling's mirror lines miss the corner at the
@@ -374,7 +464,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     /// `images(of:under:)` says what each does to a tile.
     public func transforms(for symmetry: Symmetry) -> [TileTransform] {
         switch self {
-        case .hexagonal:
+        case .hexagonal, .trihexagonal:
             return symmetry.transforms
         case .square, .truncatedSquare:
             let same = TileTransform(sides: 4)
@@ -424,6 +514,23 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             }
             // Up and right are the second pentagons of their pairs.
             return HexCoord(q: parts.column, r: 2 * parts.row + (pointing >= 2 ? 1 : 0))
+        case .trihexagonal:
+            // The cell whose centre is where this one's centre lands.
+            let target = transform.apply(to: center(of: cell))
+            let row = Int((target.y / (3.0).squareRoot()).rounded())
+            let column = Int(((target.x - Double(row)) / 2).rounded())
+            var best = cell
+            var nearest = Double.infinity
+            for rowStep in -1...1 {
+                for columnStep in -1...1 {
+                    for kind in 0..<3 {
+                        let candidate = Self.trihexCell(column: column + columnStep, row: row + rowStep, kind: kind)
+                        let distance = center(of: candidate).distance(to: target)
+                        if distance < nearest { (best, nearest) = (candidate, distance) }
+                    }
+                }
+            }
+            return best
         }
     }
 
@@ -458,6 +565,16 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             // its corners, which is a flip about its upright and then a
             // quarter turn back.
             return TileTransform(turns: grid.turns - (grid.mirrored ? 1 : 0), mirrored: grid.mirrored, sides: 4)
+        case .trihexagonal:
+            let shape = shape(of: cell)
+            guard shape == .triangle else { return grid }
+            // The grid's turn, less the difference in how the two cells are
+            // already turned, in thirds of a turn. A flip reverses the turn
+            // the cell started with.
+            let from = turn(of: cell)
+            let to = turn(of: transformed(cell, by: grid))
+            let turned = Double(grid.turns) * .pi / 3 + (grid.mirrored ? -from : from) - to
+            return TileTransform(turns: Int((turned / (2 * .pi / 3)).rounded()), mirrored: grid.mirrored, sides: 3)
         }
     }
 
