@@ -78,6 +78,11 @@ struct LibraryEditorView: View {
                 Pipe(.bezier, a: Port(edge: 0, slot: middle), b: Port(edge: 2, slot: last - middle)),
                 Pipe(.bezier, a: Port(edge: 4, slot: middle), b: Port(edge: 1, slot: last - middle)),
             ]
+        case .triangle:
+            pipes = [
+                Pipe(.bezier, a: Port(edge: 0, slot: middle), b: Port(edge: 1, slot: last - middle)),
+                Pipe(.bezier, a: Port(edge: 2, slot: 0), b: Port(edge: 1, slot: 0)),
+            ]
         case .octagon:
             pipes = [
                 Pipe(.bezier, a: Port(edge: 0, slot: middle), b: Port(edge: 4, slot: last - middle)),
@@ -159,7 +164,7 @@ struct LibraryEditorView: View {
                     }
                 } footer: {
                     Text(existing == nil
-                        ? "Every tile in a library has the same number of ports, and the library holds one shape or a set that fit together. Neither can be changed later. A library of octagons and squares can also lay a plain grid of squares. A Cairo tile is a pentagon with five equal edges; it can be flipped but not turned, so a library of them needs more tiles."
+                        ? "Every tile in a library has the same number of ports, and the library holds one shape or a set that fit together. Neither can be changed later. A library of two shapes can also lay a plain grid of one of them: squares from octagons and squares, hexagons from hexagons and triangles. A Cairo tile is a pentagon with five equal edges; it can be flipped but not turned, so a library of them needs more tiles."
                         : "The shapes and port count are fixed once a library exists.")
                 }
 

@@ -66,7 +66,8 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
 
     @Test(arguments: Tiling.allCases)
     func neighboursMeetAlongAWholeEdge(tiling: Tiling) {
-        #expect(Tiling(shape: tiling.shape(of: .origin)) == tiling)
+        // A shape names the tiling made of it alone, or the first it was added for.
+        for shape in tiling.shapes { #expect(Tiling(shape: shape).shapes.contains(shape)) }
         for cell in tiling.cells(radius: 2) {
             let shape = tiling.shape(of: cell)
             for edge in 0..<shape.edgeCount {
@@ -881,5 +882,135 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
         #expect(abs(apart - shape.inradius * 2) < 1e-9)
         let drawn = try ends(of: MazeSVG.render(maze))
         #expect(abs(drawn.0.distance(to: drawn.1) - apart * MazeSVG.Options().cellSize) < 0.05)
+    }
+}
+
+/// Hexagons with a triangle on every edge.
+@Suite struct TrihexagonalTests {
+    private let tiling = Tiling.trihexagonal
+
+    private func portSpots(of maze: Maze) -> [Point] {
+        maze.cells.flatMap { coord, placed in
+            placed.oriented.occupiedPorts.map {
+                maze.frame(of: coord).place(maze.tiling.shape(of: coord).position(of: $0, portsPerEdge: maze.portsPerEdge))
+            }
+        }
+    }
+
+    @Test func hexagonsOnlyTouchTriangles() {
+        #expect(TileShape.triangle.transforms.count == 6)
+        #expect(tiling.shapes == [.hexagon, .triangle])
+        #expect(tiling.cells(radius: 0) == [.origin])
+        // Seven hexagons and the six triangles they close in.
+        let cells = tiling.cells(radius: 1)
+        #expect(cells.filter { tiling.shape(of: $0) == .hexagon }.count == 7)
+        #expect(cells.filter { tiling.shape(of: $0) == .triangle }.count == 6)
+        for cell in tiling.cells(radius: 2) {
+            let shape = tiling.shape(of: cell)
+            for edge in 0..<shape.edgeCount {
+                let other = tiling.shape(of: tiling.neighbour(of: cell, across: edge).cell)
+                #expect(other == (shape == .hexagon ? .triangle : .hexagon))
+            }
+        }
+        let library = TileLibrary(name: "Both", portsPerEdge: 3, shapes: tiling.shapes)
+        #expect(library.tilings == [.trihexagonal, .hexagonal])
+    }
+
+    @Test(arguments: [2, 3, 4])
+    func mazesSealWithTheRightShapeInEveryCell(ports: Int) throws {
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        var sealed = 0
+        let runs = 6
+        for seed in 0..<runs {
+            var maze = Maze(portsPerEdge: ports, radius: 2, tiling: tiling)
+            #expect(maze.cellCount == 43)
+            var random = SeededGenerator(seed: UInt64(seed))
+            if generator.fill(&maze, symmetry: .none, using: &random) { sealed += 1 }
+            for (coord, placed) in maze.cells {
+                #expect(placed.source.shape == tiling.shape(of: coord))
+                #expect(maze.fits(placed.code, at: coord))
+                #expect(!CoverageMap(tile: placed.source).hasViolation)
+            }
+            guard maze.isSealed else { continue }
+            #expect(Set(maze.cells.values.map(\.source.shape)) == [.hexagon, .triangle])
+            let before = maze.paths.paths.count
+            LoopMerger(generator: generator).mergeAll(&maze, using: &random)
+            #expect(maze.isSealed)
+            #expect(maze.paths.paths.count <= before)
+            let loaded = try JSONDecoder().decode(Maze.self, from: JSONEncoder().encode(maze))
+            #expect(loaded == maze)
+            let sheet = BuildSheet(maze: maze)
+            for (coord, placed) in maze.cells {
+                let placement = try #require(sheet.placements[coord])
+                let entry = sheet.entries[placement.entry].tile
+                #expect(entry.shape == placed.source.shape)
+                #expect(Set(entry.transformed(by: placement.transform).pipes) == Set(placed.oriented.pipes))
+            }
+            #expect(MazeSVG.render(maze).contains("<polygon"))
+        }
+        #expect(sealed >= runs - 1)
+    }
+
+    @Test(arguments: [Symmetry.mirror, .half, .third, .sixth])
+    func mazesKeepTheirSymmetry(symmetry: Symmetry) {
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        let moves = tiling.transforms(for: symmetry).dropFirst()
+        #expect(tiling.stabilizer(of: .origin, symmetry: symmetry).count == moves.count)
+        var sealed = 0
+        let runs = 6
+        for seed in 0..<runs {
+            var maze = Maze(portsPerEdge: 3, radius: 2, tiling: tiling)
+            var random = SeededGenerator(seed: UInt64(seed))
+            if generator.fill(&maze, symmetry: symmetry, using: &random) { sealed += 1 }
+            #expect(maze.cells.count > 8)
+            let spots = portSpots(of: maze)
+            for move in moves {
+                for spot in spots {
+                    let image = move.apply(to: spot)
+                    #expect(spots.contains { $0.distance(to: image) < 1e-9 })
+                }
+                for (coord, placed) in maze.cells {
+                    let target = tiling.transformed(coord, by: move)
+                    #expect(maze.cells[target]?.source.shape == placed.source.shape)
+                }
+            }
+        }
+        #expect(sealed >= runs - 1)
+    }
+
+    @Test func aBoundedMazeStaysInsideAndGoalsWork() {
+        let mask = Mask.rectangle(center: Point(x: 0.3, y: -0.2), width: 11, height: 8)
+        let radius = Maze.radius(covering: mask, limit: 12, tiling: tiling)
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        var sealed = 0
+        for seed in 0..<4 {
+            var maze = Maze(portsPerEdge: 3, radius: radius, mask: mask, tiling: tiling)
+            #expect(maze.cellCount > 15)
+            maze.setGoals([.origin, HexCoord(q: 1, r: 0)])
+            var random = SeededGenerator(seed: UInt64(seed))
+            if generator.fill(&maze, symmetry: .none, using: &random) {
+                sealed += 1
+                #expect(maze.paths.paths.filter { !$0.isClosed }.count == 1)
+            }
+            for spot in portSpots(of: maze) { #expect(mask.contains(spot, inset: 0)) }
+        }
+        #expect(sealed >= 3)
+    }
+
+    @Test(arguments: [2, 3, 4, 6])
+    func whatFitsInATriangle(ports: Int) {
+        // Not a pass or fail so much as a record: every pair of ports on
+        // different edges should be joinable by at least a curve.
+        var joined = 0
+        var pairs = 0
+        let shape = TileShape.triangle
+        for a in shape.ports(portsPerEdge: ports) {
+            for b in shape.ports(portsPerEdge: ports) where a < b && a.edge != b.edge {
+                pairs += 1
+                var tile = Tile(portsPerEdge: ports, shape: shape)
+                if (try? tile.add(Pipe(.bezier, a: a, b: b))) != nil { joined += 1 }
+            }
+        }
+        #expect(joined == pairs)
     }
 }

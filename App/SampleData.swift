@@ -116,6 +116,21 @@ enum SampleData {
             }
         }
 
+        // A big shape and a very small one.
+        let trihex = try? model.create(
+            name: "Hexagons and triangles", note: "Triangles are tight.", portsPerEdge: 3,
+            allowedKinds: [.bezier, .corner, .roomSmall, .endSmall, .endMedium], shapes: [.hexagon, .triangle]
+        )
+        for (shape, count) in [(TileShape.hexagon, 18), (.triangle, 10)] {
+            for index in 0..<count {
+                var tile = Tile(portsPerEdge: 3, shape: shape)
+                for _ in 0..<(shape == .triangle ? 1 + index % 2 : 2 + index % 4) {
+                    tile.addRandomPipe(kinds: [.bezier, .bezier, .corner], using: &generator)
+                }
+                if !tile.pipes.isEmpty { try? model.save(tile, to: trihex?.id) }
+            }
+        }
+
         if let mixed { model.select(mixed.id) }
         try? model.deleteLibrary(id: placeholder)
         return model

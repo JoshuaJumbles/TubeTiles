@@ -9,6 +9,7 @@ extension TileShape {
         case .square: "Square"
         case .cairo: "Cairo"
         case .octagon: "Octagon"
+        case .triangle: "Triangle"
         }
     }
 
@@ -19,6 +20,7 @@ extension TileShape {
         case .square: "Squares"
         case .cairo: "Cairo pentagons"
         case .octagon: "Octagons"
+        case .triangle: "Triangles"
         }
     }
 
@@ -29,6 +31,7 @@ extension TileShape {
         case .square: "square tiles"
         case .cairo: "Cairo tiles"
         case .octagon: "octagon tiles"
+        case .triangle: "triangle tiles"
         }
     }
 }

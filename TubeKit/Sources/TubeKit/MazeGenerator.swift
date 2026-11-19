@@ -148,6 +148,60 @@ public struct MazeGenerator: Sendable {
         maze.tiling.stabilizer(of: coord, symmetry: symmetry)
     }
 
+    /// The pockets of empty cells that the free edges of `coord` lead into,
+    /// and whether each needs an odd number of pipes from this cell to be
+    /// fillable later (see `Maze.hasUnfillablePocket`). Several edges can
+    /// lead into one pocket.
+    ///
+    /// Only small pockets that this cell alone borders are listed. A large
+    /// one has room to put things right, and one shared with an image of
+    /// the cell gets pipes from both; the check after placing covers those.
+    private func pockets(
+        _ maze: Maze, at coord: HexCoord, freeEdges: [Int], symmetry: Symmetry
+    ) -> [(edges: [Int], odd: Bool)] {
+        let blocked = Set(maze.images(of: coord, symmetry: symmetry))
+        let limit = 24
+        var result: [(edges: [Int], odd: Bool)] = []
+        var owner: [HexCoord: Int] = [:]
+        for edge in freeEdges where maze.allowedValue(at: coord, edge: edge) != 0 {
+            let start = maze.tiling.neighbour(of: coord, across: edge).cell
+            if let index = owner[start] {
+                if index >= 0 { result[index].edges.append(edge) }
+                continue
+            }
+            var ends = 0
+            var known = true
+            var members = [start]
+            var frontier = [start]
+            var seen: Set<HexCoord> = [start]
+            while let cell = frontier.popLast() {
+                if maze.goals.contains(cell) { ends += 1 }
+                for side in maze.edges(at: cell) {
+                    let next = maze.tiling.neighbour(of: cell, across: side).cell
+                    if next == coord { continue }
+                    if blocked.contains(next) {
+                        known = false
+                        continue
+                    }
+                    if let required = maze.requirement(at: cell, edge: side) {
+                        ends += required.nonzeroBitCount
+                    } else if maze.allowedValue(at: cell, edge: side) != 0, seen.insert(next).inserted {
+                        members.append(next)
+                        frontier.append(next)
+                    }
+                }
+                if members.count > limit {
+                    known = false
+                    break
+                }
+            }
+            let index = known ? result.count : -1
+            for member in members { owner[member] = index }
+            if known { result.append(([edge], ends % 2 == 1)) }
+        }
+        return result
+    }
+
     /// Builds a tile for `coord` that meets every neighbour, optionally
     /// opening new pipes across edges that are still free.
     private func synthesize(
@@ -203,9 +257,36 @@ public struct MazeGenerator: Sendable {
             }
             tries += 1
         }
-        // Pipes have two ends, so the port count must be even.
+        // Each pocket of empty cells beyond a free edge has to be sent an
+        // odd or an even number of pipes, or nothing will ever fill it.
+        var settled: Set<Int> = []
+        if fixing.isEmpty {
+            for pocket in pockets(maze, at: coord, freeEdges: freeEdges, symmetry: symmetry) {
+                settled.formUnion(pocket.edges)
+                let sent = ports.filter { pocket.edges.contains($0.edge) }
+                guard (sent.count % 2 == 1) != pocket.odd else { continue }
+                let spare = pocket.edges.flatMap { edge in
+                    openSlots(maze, at: coord, edge: edge).map { Port(edge: edge, slot: $0) }
+                }.filter { !ports.contains($0) }
+                if let extra = spare.randomElement(using: &generator), sent.isEmpty || Bool.random(using: &generator) {
+                    ports.insert(extra)
+                    grown.append(extra)
+                } else if let extra = sent.sorted().randomElement(using: &generator) {
+                    ports.remove(extra)
+                    grown.removeAll { $0 == extra }
+                } else if let extra = spare.randomElement(using: &generator) {
+                    ports.insert(extra)
+                    grown.append(extra)
+                } else {
+                    return nil
+                }
+            }
+        }
+        // Pipes have two ends, so the port count must be even. Ports
+        // already counted out for a pocket are left alone if possible.
         if ports.count % 2 == 1 {
-            if fixing.isEmpty, let extra = grown.randomElement(using: &generator) {
+            let loose = grown.filter { !settled.contains($0.edge) }
+            if fixing.isEmpty, let extra = (loose.isEmpty ? grown : loose).randomElement(using: &generator) {
                 ports.remove(extra)
             } else if let spare = freeEdges.shuffled(using: &generator).lazy
                 .flatMap({ edge in self.openSlots(maze, at: coord, edge: edge).map { Port(edge: edge, slot: $0) } })
@@ -337,9 +418,14 @@ public struct MazeGenerator: Sendable {
         using generator: inout some RandomNumberGenerator
     ) -> Bool {
         let open = Set(next.openCells)
-        let touched = Set(next.images(of: coord, symmetry: symmetry).flatMap { target in
+        let around = Set(next.images(of: coord, symmetry: symmetry).flatMap { target in
             next.edges(at: target).map { next.tiling.neighbour(of: target, across: $0).cell }
-        }).intersection(open).sorted()
+        })
+        // A tile that walls off empty cells with an odd number of pipes
+        // pointing in has made something no later tile can put right.
+        let empty = around.filter { next.contains($0) && next.cells[$0] == nil }
+        if next.hasUnfillablePocket(around: empty.sorted(), symmetry: symmetry) { return true }
+        let touched = around.intersection(open).sorted()
         for cell in touched where !canFill(next, at: cell, symmetry: symmetry, using: &generator) {
             return true
         }

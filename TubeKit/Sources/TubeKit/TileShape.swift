@@ -23,6 +23,8 @@ public enum TileShape: String, Hashable, Sendable, Codable, CaseIterable {
     case cairo
     /// A regular octagon with a flat top.
     case octagon
+    /// A triangle with three equal edges, flat on top and pointing down.
+    case triangle
 
     public var edgeCount: Int {
         switch self {
@@ -30,6 +32,7 @@ public enum TileShape: String, Hashable, Sendable, Codable, CaseIterable {
         case .square: 4
         case .cairo: 5
         case .octagon: 8
+        case .triangle: 3
         }
     }
 
@@ -37,7 +40,7 @@ public enum TileShape: String, Hashable, Sendable, Codable, CaseIterable {
     /// one edge at a time.
     public var isRegular: Bool {
         switch self {
-        case .hexagon, .square, .octagon: true
+        case .hexagon, .square, .octagon, .triangle: true
         case .cairo: false
         }
     }
@@ -66,6 +69,7 @@ public enum TileShape: String, Hashable, Sendable, Codable, CaseIterable {
         case .hexagon: 1
         case .square: (0.5).squareRoot()
         case .octagon: 0.5 / sin(.pi / 8)
+        case .triangle: 1 / (3.0).squareRoot()
         case .cairo: Self.cairoCorners.map { $0.distance(to: .zero) }.max() ?? 1
         }
     }
@@ -76,6 +80,7 @@ public enum TileShape: String, Hashable, Sendable, Codable, CaseIterable {
         case .hexagon: (3.0).squareRoot() / 2
         case .square: 0.5
         case .octagon: 0.5 / tan(.pi / 8)
+        case .triangle: 0.5 / (3.0).squareRoot()
         case .cairo:
             (0..<edgeCount).map { edge in
                 let offset = Point.zero - corner(edge)
@@ -90,7 +95,7 @@ public enum TileShape: String, Hashable, Sendable, Codable, CaseIterable {
 
     public func corner(_ index: Int) -> Point {
         switch self {
-        case .hexagon, .square, .octagon:
+        case .hexagon, .square, .octagon, .triangle:
             let angle = (-90.0 - step / 2 + step * Double(index)) * .pi / 180
             return Point(x: cos(angle), y: sin(angle)) * circumradius
         case .cairo:
@@ -114,7 +119,7 @@ public enum TileShape: String, Hashable, Sendable, Codable, CaseIterable {
     /// Unit vector pointing from an edge into the tile, perpendicular to it.
     public func inwardDirection(edge: Int) -> Point {
         switch self {
-        case .hexagon, .square, .octagon:
+        case .hexagon, .square, .octagon, .triangle:
             let angle = (90.0 + step * Double(edge)) * .pi / 180
             return Point(x: cos(angle), y: sin(angle))
         case .cairo:
@@ -160,7 +165,7 @@ public enum TileShape: String, Hashable, Sendable, Codable, CaseIterable {
     /// can only be left as it is or flipped.
     public var transforms: [TileTransform] {
         switch self {
-        case .hexagon, .square, .octagon:
+        case .hexagon, .square, .octagon, .triangle:
             TileTransform.all(sides: edgeCount)
         case .cairo:
             [TileTransform(sides: edgeCount), TileTransform(mirrored: true, sides: edgeCount)]

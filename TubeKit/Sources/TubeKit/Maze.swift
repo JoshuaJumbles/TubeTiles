@@ -362,6 +362,57 @@ public struct Maze: Hashable, Sendable, Codable {
         }
     }
 
+    /// Whether any of the given cells is in a pocket of empty cells that
+    /// can never be filled.
+    ///
+    /// Every pipe has two ends, so a tile uses an even number of ports, or
+    /// an odd number if it ends one pipe in a room for a goal. Add that up
+    /// over a group of empty cells joined to each other: the pipes pointing
+    /// into the group from the tiles round it, plus its entrances and goals,
+    /// have to come to an even number. If they come to an odd one, no choice
+    /// of tiles fills the group, and taking tiles out round it does not
+    /// help, because each tile taken out brings an even number with it.
+    ///
+    /// A maze kept symmetric by turning has a stricter rule for a group
+    /// that the turn maps onto itself, such as an empty band right round
+    /// the centre. It is filled the same way in each of its matching parts,
+    /// and the pipes that cross from one part to the next come in matching
+    /// pairs, so each part on its own needs an even number from outside.
+    public func hasUnfillablePocket(around seeds: some Sequence<HexCoord>, symmetry: Symmetry = .none) -> Bool {
+        // Only turns, and only groups clear of a cell the turn maps onto
+        // itself: that cell's tile joins the parts in ways of its own.
+        let turns = symmetry != .none && symmetry != .mirror
+        let centre: HexCoord? = turns && !tiling.stabilizer(of: .origin, symmetry: symmetry).isEmpty ? .origin : nil
+        var seen: Set<HexCoord> = []
+        for seed in seeds where contains(seed) && cells[seed] == nil && !seen.contains(seed) {
+            var ends = 0
+            var frontier = [seed]
+            var group: Set<HexCoord> = [seed]
+            seen.insert(seed)
+            while let cell = frontier.popLast() {
+                group.insert(cell)
+                if goals.contains(cell) { ends += 1 }
+                for edge in edges(at: cell) {
+                    if let required = requirement(at: cell, edge: edge) {
+                        ends += required.nonzeroBitCount
+                        continue
+                    }
+                    // An empty neighbour is part of the pocket if a pipe
+                    // could pass between the two.
+                    guard allowedValue(at: cell, edge: edge) != 0 else { continue }
+                    let next = tiling.neighbour(of: cell, across: edge).cell
+                    if seen.insert(next).inserted { frontier.append(next) }
+                }
+            }
+            if ends % 2 != 0 { return true }
+            guard turns, centre.map({ !group.contains($0) }) ?? true else { continue }
+            // How many ways the turn maps the group onto itself.
+            let parts = images(of: seed, symmetry: symmetry).filter(group.contains).count
+            if parts > 1, ends % parts == 0, (ends / parts) % 2 != 0 { return true }
+        }
+        return false
+    }
+
     /// True once there is at least one tile and no pipe is left hanging.
     public var isSealed: Bool {
         !cells.isEmpty && openCells.isEmpty
