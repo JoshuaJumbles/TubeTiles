@@ -62,7 +62,8 @@ extension Tiling {
         switch self {
         case .elongatedTriangular: "Squares and triangles in rows"
         case .snubSquare: "Squares and triangles in pinwheels"
-        case .hexagonal, .square, .cairo, .truncatedSquare, .trihexagonal, .rhombitrihexagonal: shapesTitle
+        case .hexagonal, .square, .cairo, .truncatedSquare, .trihexagonal, .rhombitrihexagonal, .triangular:
+            shapesTitle
         }
     }
 
