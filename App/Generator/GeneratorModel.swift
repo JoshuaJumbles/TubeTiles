@@ -207,7 +207,7 @@ final class GeneratorModel {
     /// per edge".
     var mazeDescription: String {
         let shapes = maze.tiling.shapes
-        let tiles = shapes.count == 1 ? shapes[0].tilesTitle : maze.tiling.title.lowercased()
+        let tiles = shapes.count == 1 ? shapes[0].tilesTitle : maze.tiling.shapesTitle.lowercased()
         return "\(tiles) with \(portsPerEdge) ports per edge"
     }
 

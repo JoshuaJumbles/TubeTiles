@@ -37,12 +37,32 @@ extension TileShape {
 }
 
 extension Tiling {
-    /// The tiling named by the shapes it is made of, as in "Octagons and
-    /// squares".
-    var title: String {
+    /// The shapes the tiling is made of, as in "Octagons and squares".
+    var shapesTitle: String {
         let names = shapes.map(\.pluralTitle)
         let rest = names.dropFirst().map { $0.lowercased() }
         return ListFormatter.localizedString(byJoining: [names[0]] + rest)
+    }
+
+    /// The tiling's name, for choosing between the ways a library can be
+    /// laid. Most are told apart by their shapes; two share theirs and are
+    /// named for how the shapes are arranged.
+    var title: String {
+        switch self {
+        case .elongatedTriangular: "Rows"
+        case .snubSquare: "Pinwheels"
+        case .hexagonal, .square, .cairo, .truncatedSquare, .trihexagonal: shapesTitle
+        }
+    }
+
+    /// One tiling for each set of shapes a library can be made of.
+    static var librarySets: [Tiling] {
+        var seen: [[TileShape]] = []
+        return allCases.filter { tiling in
+            guard !seen.contains(tiling.shapes) else { return false }
+            seen.append(tiling.shapes)
+            return true
+        }
     }
 }
 
