@@ -13,6 +13,17 @@ extension TileShape {
         }
     }
 
+    /// A plain picture of the shape, for where its name will not fit.
+    var symbolName: String {
+        switch self {
+        case .hexagon: "hexagon"
+        case .square: "square"
+        case .cairo: "pentagon"
+        case .octagon: "octagon"
+        case .triangle: "triangle"
+        }
+    }
+
     /// Several of the shape, as a heading or in a summary.
     var pluralTitle: String {
         switch self {
@@ -49,9 +60,9 @@ extension Tiling {
     /// named for how the shapes are arranged.
     var title: String {
         switch self {
-        case .elongatedTriangular: "Rows"
-        case .snubSquare: "Pinwheels"
-        case .hexagonal, .square, .cairo, .truncatedSquare, .trihexagonal: shapesTitle
+        case .elongatedTriangular: "Squares and triangles in rows"
+        case .snubSquare: "Squares and triangles in pinwheels"
+        case .hexagonal, .square, .cairo, .truncatedSquare, .trihexagonal, .rhombitrihexagonal: shapesTitle
         }
     }
 

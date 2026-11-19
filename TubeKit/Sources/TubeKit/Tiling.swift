@@ -100,6 +100,15 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     /// bottom or left edge. Only every other square has triangles of its
     /// own; the rest borrow their neighbours'.
     case snubSquare
+    /// Hexagons set apart from each other, with a square on every edge and
+    /// a triangle filling each gap where three squares meet.
+    ///
+    /// A cell's `q` is its hexagon's column. Its `r` is six times the
+    /// hexagon's place in the column, plus one to three for the squares on
+    /// its upper right, lower right and bottom edges, or four or five for
+    /// the triangles at its right-hand and lower right corners. The other
+    /// squares and triangles round a hexagon belong to its neighbours.
+    case rhombitrihexagonal
 
     /// One tiling with cells of the given shape.
     public init(shape: TileShape) {
@@ -122,6 +131,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .truncatedSquare: [.octagon, .square]
         case .trihexagonal: [.hexagon, .triangle]
         case .elongatedTriangular, .snubSquare: [.square, .triangle]
+        case .rhombitrihexagonal: [.hexagon, .square, .triangle]
         }
     }
 
@@ -135,6 +145,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .trihexagonal: Self.trihexParts(cell).kind == 0 ? .hexagon : .triangle
         case .elongatedTriangular: Self.parts(cell, per: 3).kind == 0 ? .square : .triangle
         case .snubSquare: Self.parts(cell, per: 5).kind == 0 ? .square : .triangle
+        case .rhombitrihexagonal: Self.rhombiShapes[Self.parts(cell, per: 6).kind]
         }
     }
 
@@ -148,7 +159,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             // Triangles belong to the squares on one colour of the board.
             let parts = Self.parts(cell, per: 5)
             return parts.kind == 0 || (parts.column + parts.row) & 1 == 0
-        case .hexagonal, .square, .cairo, .trihexagonal, .elongatedTriangular:
+        case .hexagonal, .square, .cairo, .trihexagonal, .elongatedTriangular, .rhombitrihexagonal:
             return true
         }
     }
@@ -214,6 +225,51 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
                     }
                 }
                 preconditionFailure("A pinwheel cell has an edge with nothing across it")
+            }
+        }
+    }()
+
+    /// From one hexagon to the next across a square, where hexagons, squares
+    /// and triangles are laid together.
+    static let rhombiPitch = 1 + (3.0).squareRoot()
+
+    /// The shapes of the six cells that go with a hexagon: itself, three
+    /// squares and two triangles.
+    private static let rhombiShapes: [TileShape] = [.hexagon, .square, .square, .square, .triangle, .triangle]
+
+    /// A direction on screen, by its angle in degrees clockwise from right.
+    private static func direction(_ degrees: Double) -> Point {
+        Point(x: cos(degrees * .pi / 180), y: sin(degrees * .pi / 180))
+    }
+
+    /// For each of the six cells that go with a hexagon, and each of its
+    /// edges: how far away the neighbour's hexagon is, which of that
+    /// hexagon's cells, and which edge. Found by looking, like the
+    /// pinwheel's.
+    private static let rhombiNeighbours: [[(column: Int, row: Int, kind: Int, edge: Int)]] = {
+        let tiling = Tiling.rhombitrihexagonal
+        func middle(_ cell: HexCoord, _ edge: Int) -> Point {
+            let shape = tiling.shape(of: cell)
+            return tiling.frame(of: cell).place((shape.corner(edge) + shape.corner(edge + 1)) * 0.5)
+        }
+        var nearby: [HexCoord] = []
+        for column in -2...2 {
+            for row in -2...2 {
+                for kind in 0..<6 { nearby.append(HexCoord(q: column, r: 6 * row + kind)) }
+            }
+        }
+        return (0..<6).map { kind in
+            let cell = HexCoord(q: 0, r: kind)
+            return (0..<tiling.shape(of: cell).edgeCount).map { edge in
+                let here = middle(cell, edge)
+                for other in nearby where other != cell {
+                    for facing in 0..<tiling.shape(of: other).edgeCount
+                    where middle(other, facing).distance(to: here) < 1e-6 {
+                        let parts = parts(other, per: 6)
+                        return (parts.column, parts.row, parts.kind, facing)
+                    }
+                }
+                preconditionFailure("A cell has an edge with nothing across it")
             }
         }
     }()
@@ -314,6 +370,23 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             let angle = Self.snubTilt + Double(parts.kind - 2) * .pi / 2
             let reach = 0.5 + TileShape.triangle.inradius
             return Point(x: square.x + cos(angle) * reach, y: square.y + sin(angle) * reach)
+        case .rhombitrihexagonal:
+            // Columns of hexagons run up to the right; within a column they
+            // go straight down.
+            let parts = Self.parts(cell, per: 6)
+            let along = Self.direction(-30) * Self.rhombiPitch
+            let down = Self.direction(90) * Self.rhombiPitch
+            let hexagon = along * Double(parts.column) + down * Double(parts.row)
+            switch parts.kind {
+            case 0: return hexagon
+            // Half way to the next hexagon, up-right, down-right or down.
+            case 1: return hexagon + along * 0.5
+            case 2: return hexagon + (along + down) * 0.5
+            case 3: return hexagon + down * 0.5
+            // In the middle of three hexagons.
+            case 4: return hexagon + (along * 2 + down) * (1.0 / 3)
+            default: return hexagon + (along + down * 2) * (1.0 / 3)
+            }
         }
     }
 
@@ -345,6 +418,11 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             // triangle is turned to put its top edge against its square.
             if parts.kind == 0 { return (parts.column + parts.row) & 1 == 0 ? Self.snubTilt : -Self.snubTilt }
             return Self.snubTilt + Double(parts.kind - 3) * .pi / 2
+        case .rhombitrihexagonal:
+            // A square has its top edge against its own hexagon. A triangle
+            // has a corner pointing back at it.
+            let degrees: [Double] = [0, -120, -60, 0, 90, 30]
+            return degrees[Self.parts(cell, per: 6).kind] * .pi / 180
         }
     }
 
@@ -419,6 +497,10 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             let parts = Self.parts(cell, per: 5)
             let other = Self.snubNeighbours[Self.snubKind(parts)][edge]
             return (HexCoord(q: parts.column + other.column, r: 5 * (parts.row + other.row) + other.kind), other.edge)
+        case .rhombitrihexagonal:
+            let parts = Self.parts(cell, per: 6)
+            let other = Self.rhombiNeighbours[parts.kind][edge]
+            return (HexCoord(q: parts.column + other.column, r: 6 * (parts.row + other.row) + other.kind), other.edge)
         }
     }
 
@@ -499,6 +581,23 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
                 ring(parts.column, parts.row),
                 ring(parts.column + (other?.column ?? 0), parts.row + (other?.row ?? 0))
             )
+        case .rhombitrihexagonal:
+            // By hexagons, so a region is a hexagon of them, with the
+            // squares between two of its hexagons and the triangles between
+            // three.
+            let parts = Self.parts(cell, per: 6)
+            func ring(_ column: Int, _ row: Int) -> Int {
+                max(abs(column), abs(row), abs(column - row))
+            }
+            let (column, row) = (parts.column, parts.row)
+            switch parts.kind {
+            case 0: return ring(column, row)
+            case 1: return max(ring(column, row), ring(column + 1, row))
+            case 2: return max(ring(column, row), ring(column + 1, row + 1))
+            case 3: return max(ring(column, row), ring(column, row + 1))
+            case 4: return max(ring(column, row), ring(column + 1, row), ring(column + 1, row + 1))
+            default: return max(ring(column, row), ring(column + 1, row + 1), ring(column, row + 1))
+            }
         }
     }
 
@@ -525,6 +624,9 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         } else if self == .snubSquare {
             // Five cells to a square.
             rows = (-5 * radius)...(5 * radius + 4)
+        } else if self == .rhombitrihexagonal {
+            // Six cells to a hexagon.
+            rows = (-6 * radius)...(6 * radius + 5)
         }
         return columns.flatMap { q in
             rows.map { HexCoord(q: q, r: $0) }
@@ -549,6 +651,9 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             return 3 * squares - 2 * (rows % 2 == 0 ? 2 * radius + 1 : 2 * radius)
         // A block of squares, and a triangle for each two that touch.
         case .snubSquare: return (2 * radius + 1) * (6 * radius + 1)
+        // A hexagon of hexagons, a square for each two that are neighbours
+        // and a triangle for each three.
+        case .rhombitrihexagonal: return 18 * radius * radius + 6 * radius + 1
         }
     }
 
@@ -576,6 +681,9 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             // A tilted square reaches half a pitch from its centre.
             let side = Double(2 * radius + 1) * Self.snubPitch
             return (side, side)
+        case .rhombitrihexagonal:
+            let reach = Double(radius) * Self.rhombiPitch
+            return (2 * (reach * (3.0).squareRoot() / 2 + 1), 2 * (reach + (3.0).squareRoot() / 2))
         }
     }
 
@@ -613,6 +721,10 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
                     furthest = max(furthest, abs(x) - 0.5, abs(y) + 0.5)
                 case .snubSquare:
                     furthest = max(furthest, abs(x) / Self.snubPitch - 0.5, abs(y) / Self.snubPitch - 0.5)
+                case .rhombitrihexagonal:
+                    let column = x / (Self.rhombiPitch * (3.0).squareRoot() / 2)
+                    let row = y / Self.rhombiPitch + column / 2
+                    furthest = max(furthest, abs(column), abs(row), abs(column - row))
                 }
             }
         }
@@ -633,6 +745,8 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         // Squares in a row.
         case .elongatedTriangular: Double(columns)
         case .snubSquare: Double(columns) * Self.snubPitch
+        // Columns of hexagons.
+        case .rhombitrihexagonal: Double(columns) * Self.rhombiPitch * (3.0).squareRoot() / 2
         }
     }
 
@@ -646,6 +760,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
         case .trihexagonal: Int((width / 2).rounded())
         case .elongatedTriangular: Int(width.rounded())
         case .snubSquare: Int((width / Self.snubPitch).rounded())
+        case .rhombitrihexagonal: Int((width / (Self.rhombiPitch * (3.0).squareRoot() / 2)).rounded())
         }
     }
 
@@ -655,7 +770,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     public var symmetries: [Symmetry] {
         switch self {
         // The centre is a hexagon either way.
-        case .hexagonal, .trihexagonal: [.none, .mirror, .half, .third, .sixth]
+        case .hexagonal, .trihexagonal, .rhombitrihexagonal: [.none, .mirror, .half, .third, .sixth]
         // The centre is an octagon, which has every symmetry a square has.
         case .square, .truncatedSquare: [.none, .mirror, .half, .quarter]
         // Rows look the same turned half way round or flipped, and no
@@ -676,7 +791,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
     /// `images(of:under:)` says what each does to a tile.
     public func transforms(for symmetry: Symmetry) -> [TileTransform] {
         switch self {
-        case .hexagonal, .trihexagonal:
+        case .hexagonal, .trihexagonal, .rhombitrihexagonal:
             return symmetry.transforms
         case .square, .truncatedSquare, .elongatedTriangular, .snubSquare:
             guard symmetries.contains(symmetry) else { return [TileTransform(sides: 4)] }
@@ -727,7 +842,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             }
             // Up and right are the second pentagons of their pairs.
             return HexCoord(q: parts.column, r: 2 * parts.row + (pointing >= 2 ? 1 : 0))
-        case .trihexagonal, .elongatedTriangular, .snubSquare:
+        case .trihexagonal, .elongatedTriangular, .snubSquare, .rhombitrihexagonal:
             return self.cell(nearest: transform.apply(to: center(of: cell))) ?? cell
         }
     }
@@ -752,6 +867,11 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             count = 5
             row = Int((point.y / Self.snubPitch).rounded())
             column = Int((point.x / Self.snubPitch).rounded())
+        case .rhombitrihexagonal:
+            count = 6
+            let across = point.x / (Self.rhombiPitch * (3.0).squareRoot() / 2)
+            column = Int(across.rounded())
+            row = Int((point.y / Self.rhombiPitch + across / 2).rounded())
         case .hexagonal, .square, .cairo, .truncatedSquare:
             return nil
         }
@@ -801,7 +921,7 @@ public enum Tiling: String, Hashable, Sendable, Codable, CaseIterable {
             // its corners, which is a flip about its upright and then a
             // quarter turn back.
             return TileTransform(turns: grid.turns - (grid.mirrored ? 1 : 0), mirrored: grid.mirrored, sides: 4)
-        case .trihexagonal, .elongatedTriangular, .snubSquare:
+        case .trihexagonal, .elongatedTriangular, .snubSquare, .rhombitrihexagonal:
             // The grid's turn, less the difference in how the two cells are
             // already turned, counted in edges of the cell's own shape. A
             // flip reverses the turn the cell started with.

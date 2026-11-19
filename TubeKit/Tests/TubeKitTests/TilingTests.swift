@@ -1160,3 +1160,125 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
         #expect(sealed >= 3)
     }
 }
+
+/// Hexagons with a square on every edge and a triangle at every corner.
+@Suite struct RhombitrihexagonalTests {
+    private let tiling = Tiling.rhombitrihexagonal
+
+    private func portSpots(of maze: Maze) -> [Point] {
+        maze.cells.flatMap { coord, placed in
+            placed.oriented.occupiedPorts.map {
+                maze.frame(of: coord).place(maze.tiling.shape(of: coord).position(of: $0, portsPerEdge: maze.portsPerEdge))
+            }
+        }
+    }
+
+    @Test func squaresSeparateHexagonsFromEachOtherAndFromTriangles() {
+        #expect(tiling.shapes == [.hexagon, .square, .triangle])
+        #expect(tiling.cells(radius: 0) == [.origin])
+        // Seven hexagons, a square for each two that are neighbours and a
+        // triangle for each three.
+        let cells = tiling.cells(radius: 1)
+        #expect(cells.filter { tiling.shape(of: $0) == .hexagon }.count == 7)
+        #expect(cells.filter { tiling.shape(of: $0) == .square }.count == 12)
+        #expect(cells.filter { tiling.shape(of: $0) == .triangle }.count == 6)
+        for cell in tiling.cells(radius: 2) {
+            let shape = tiling.shape(of: cell)
+            let around = (0..<shape.edgeCount).map { tiling.shape(of: tiling.neighbour(of: cell, across: $0).cell) }
+            // Hexagons and triangles touch only squares. A square has a
+            // hexagon at each end and a triangle on each side.
+            switch shape {
+            case .square: #expect(around == [.hexagon, .triangle, .hexagon, .triangle])
+            default: #expect(around.allSatisfy { $0 == .square })
+            }
+        }
+    }
+
+    @Test func aLibraryOfAllThreeShapesLaysSixTilings() {
+        let library = TileLibrary(name: "Three", portsPerEdge: 3, shapes: [.hexagon, .square, .triangle])
+        #expect(library.tilings.first == .rhombitrihexagonal)
+        #expect(Set(library.tilings) == [
+            .rhombitrihexagonal, .trihexagonal, .elongatedTriangular, .snubSquare, .hexagonal, .square,
+        ])
+    }
+
+    @Test(arguments: [3, 4])
+    func mazesSealWithTheRightShapeInEveryCell(ports: Int) throws {
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        var sealed = 0
+        let runs = 6
+        for seed in 0..<runs {
+            var maze = Maze(portsPerEdge: ports, radius: 2, tiling: tiling)
+            #expect(maze.cellCount == 85)
+            var random = SeededGenerator(seed: UInt64(seed))
+            if generator.fill(&maze, symmetry: .none, using: &random) { sealed += 1 }
+            for (coord, placed) in maze.cells {
+                #expect(placed.source.shape == tiling.shape(of: coord))
+                #expect(maze.fits(placed.code, at: coord))
+                #expect(!CoverageMap(tile: placed.source).hasViolation)
+            }
+            guard maze.isSealed else { continue }
+            let before = maze.paths.paths.count
+            LoopMerger(generator: generator).mergeAll(&maze, using: &random)
+            #expect(maze.isSealed)
+            #expect(maze.paths.paths.count <= before)
+            #expect(maze.weave().conflicts == 0)
+            let loaded = try JSONDecoder().decode(Maze.self, from: JSONEncoder().encode(maze))
+            #expect(loaded == maze)
+            let sheet = BuildSheet(maze: maze)
+            for (coord, placed) in maze.cells {
+                let placement = try #require(sheet.placements[coord])
+                let entry = sheet.entries[placement.entry].tile
+                #expect(entry.shape == placed.source.shape)
+                #expect(Set(entry.transformed(by: placement.transform).pipes) == Set(placed.oriented.pipes))
+            }
+            #expect(MazeSVG.render(maze).contains("<polygon"))
+        }
+        #expect(sealed >= runs - 1)
+    }
+
+    @Test(arguments: [Symmetry.mirror, .half, .third, .sixth])
+    func mazesKeepTheirSymmetry(symmetry: Symmetry) {
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        let moves = tiling.transforms(for: symmetry).dropFirst()
+        #expect(tiling.stabilizer(of: .origin, symmetry: symmetry).count == moves.count)
+        for seed in 0..<4 {
+            var maze = Maze(portsPerEdge: 3, radius: 2, tiling: tiling)
+            var random = SeededGenerator(seed: UInt64(seed))
+            generator.fill(&maze, symmetry: symmetry, using: &random)
+            #expect(maze.cells.count > 2)
+            let spots = portSpots(of: maze)
+            for move in moves {
+                for spot in spots {
+                    let image = move.apply(to: spot)
+                    #expect(spots.contains { $0.distance(to: image) < 1e-9 })
+                }
+                for (coord, placed) in maze.cells {
+                    let target = tiling.transformed(coord, by: move)
+                    #expect(maze.cells[target]?.source.shape == placed.source.shape)
+                }
+            }
+        }
+    }
+
+    @Test func aBoundedMazeStaysInsideAndGoalsWork() {
+        let mask = Mask.rectangle(center: Point(x: 0.3, y: -0.2), width: 11, height: 8)
+        let radius = Maze.radius(covering: mask, limit: 12, tiling: tiling)
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        var sealed = 0
+        for seed in 0..<4 {
+            var maze = Maze(portsPerEdge: 3, radius: radius, mask: mask, tiling: tiling)
+            #expect(maze.cellCount > 15)
+            // A goal in a hexagon, one in a square and one in a triangle
+            // would be three ends; two of them make one path.
+            maze.setGoals([.origin, HexCoord(q: 0, r: 4)])
+            var random = SeededGenerator(seed: UInt64(seed))
+            if generator.fill(&maze, symmetry: .none, using: &random) {
+                sealed += 1
+                #expect(maze.paths.paths.filter { !$0.isClosed }.count == 1)
+            }
+            for spot in portSpots(of: maze) { #expect(mask.contains(spot, inset: 0)) }
+        }
+        #expect(sealed >= 3)
+    }
+}

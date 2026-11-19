@@ -190,7 +190,16 @@ private struct EditorPanel: View {
                 // Which of the library's shapes is being drawn.
                 if model.shapes.count > 1 {
                     Picker("Shape", selection: Binding(get: { model.tile.shape }, set: { model.setShape($0) })) {
-                        ForEach(model.shapes, id: \.self) { Text($0.title).tag($0) }
+                        // Two names fit; three or more are shown as pictures.
+                        ForEach(model.shapes, id: \.self) { shape in
+                            if model.shapes.count < 3 {
+                                Text(shape.title).tag(shape)
+                            } else {
+                                Image(systemName: shape.symbolName)
+                                    .accessibilityLabel(shape.title)
+                                    .tag(shape)
+                            }
+                        }
                     }
                     .pickerStyle(.segmented)
                     .labelStyle(.titleOnly)

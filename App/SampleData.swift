@@ -146,6 +146,22 @@ enum SampleData {
             }
         }
 
+        // Three shapes, which between them lay six tilings.
+        let three = try? model.create(
+            name: "Three shapes", note: "Hexagons, squares and triangles.", portsPerEdge: 3,
+            allowedKinds: [.bezier, .corner, .roomSmall, .endSmall, .endMedium],
+            shapes: [.hexagon, .square, .triangle]
+        )
+        for (shape, count) in [(TileShape.hexagon, 14), (.square, 10), (.triangle, 8)] {
+            for index in 0..<count {
+                var tile = Tile(portsPerEdge: 3, shape: shape)
+                for _ in 0..<(shape == .triangle ? 1 + index % 2 : 1 + index % 3) {
+                    tile.addRandomPipe(kinds: [.bezier, .bezier, .corner], using: &generator)
+                }
+                if !tile.pipes.isEmpty { try? model.save(tile, to: three?.id) }
+            }
+        }
+
         if let mixed { model.select(mixed.id) }
         try? model.deleteLibrary(id: placeholder)
         return model
