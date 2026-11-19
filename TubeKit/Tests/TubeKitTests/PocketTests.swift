@@ -107,3 +107,38 @@ import Testing
         #expect(pairs > 50)
     }
 }
+
+/// Spread is also how much of the space a maze fills before it closes up.
+@Suite struct SpreadTests {
+    @Test(arguments: Tiling.allCases)
+    func aMazeDoesNotCloseUpWhileItIsStillSmall(tiling: Tiling) {
+        // A single strand that wanders back to its own start used to seal
+        // a maze of four or five tiles. Rows of squares and triangles did
+        // it one time in six.
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.75))
+        var small = 0
+        let runs = 8
+        for seed in 0..<runs {
+            var maze = Maze(portsPerEdge: 3, radius: 3, tiling: tiling)
+            var random = SeededGenerator(seed: UInt64(seed))
+            generator.fill(&maze, symmetry: .none, using: &random)
+            if maze.cells.count * 5 < maze.cellCount { small += 1 }
+        }
+        #expect(small == 0, "\(tiling): \(small) of \(runs) mazes filled under a fifth of their cells")
+    }
+
+    @Test func lessSpreadStillMeansASmallerMaze() {
+        func tiles(growth: Double) -> Int {
+            let generator = MazeGenerator(tiles: [], synthesis: .init(growth: growth))
+            return (0..<6).reduce(0) { total, seed in
+                var maze = Maze(portsPerEdge: 3, radius: 4)
+                var random = SeededGenerator(seed: UInt64(seed))
+                generator.fill(&maze, symmetry: .none, using: &random)
+                return total + maze.cells.count
+            }
+        }
+        let low = tiles(growth: 0.1)
+        let high = tiles(growth: 0.8)
+        #expect(low * 3 < high * 2, "\(low) tiles at low spread, \(high) at high")
+    }
+}

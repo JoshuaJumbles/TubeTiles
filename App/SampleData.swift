@@ -131,6 +131,21 @@ enum SampleData {
             }
         }
 
+        // Two shapes that fit together two ways.
+        let rows = try? model.create(
+            name: "Squares and triangles", note: "Rows or pinwheels.", portsPerEdge: 3,
+            allowedKinds: [.bezier, .corner, .roomSmall, .endSmall, .endMedium], shapes: [.square, .triangle]
+        )
+        for (shape, count) in [(TileShape.square, 14), (.triangle, 10)] {
+            for index in 0..<count {
+                var tile = Tile(portsPerEdge: 3, shape: shape)
+                for _ in 0..<(shape == .triangle ? 1 + index % 2 : 1 + index % 3) {
+                    tile.addRandomPipe(kinds: [.bezier, .bezier, .corner], using: &generator)
+                }
+                if !tile.pipes.isEmpty { try? model.save(tile, to: rows?.id) }
+            }
+        }
+
         if let mixed { model.select(mixed.id) }
         try? model.deleteLibrary(id: placeholder)
         return model

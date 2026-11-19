@@ -155,7 +155,7 @@ struct LibraryEditorView: View {
                 Section {
                     if existing == nil {
                         Picker("Tiles", selection: $tiling) {
-                            ForEach(Tiling.allCases, id: \.self) { Text($0.title).tag($0) }
+                            ForEach(Tiling.librarySets, id: \.self) { Text($0.shapesTitle).tag($0) }
                         }
                         Stepper("\(portsPerEdge) ports per edge", value: $portsPerEdge, in: Self.portRange)
                     } else {
@@ -164,7 +164,7 @@ struct LibraryEditorView: View {
                     }
                 } footer: {
                     Text(existing == nil
-                        ? "Every tile in a library has the same number of ports, and the library holds one shape or a set that fit together. Neither can be changed later. A library of two shapes can also lay a plain grid of one of them: squares from octagons and squares, hexagons from hexagons and triangles. A Cairo tile is a pentagon with five equal edges; it can be flipped but not turned, so a library of them needs more tiles."
+                        ? "Every tile in a library has the same number of ports, and the library holds one shape or a set that fit together. Neither can be changed later. A library of two shapes can be laid every way those shapes fit together, and as a plain grid of one of them where that shape tiles alone. The generator offers the choice under Options. A Cairo tile is a pentagon with five equal edges; it can be flipped but not turned, so a library of them needs more tiles."
                         : "The shapes and port count are fixed once a library exists.")
                 }
 

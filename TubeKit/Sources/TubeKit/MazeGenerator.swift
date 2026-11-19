@@ -203,12 +203,15 @@ public struct MazeGenerator: Sendable {
     }
 
     /// Builds a tile for `coord` that meets every neighbour, optionally
-    /// opening new pipes across edges that are still free.
+    /// opening new pipes across edges that are still free. An eager tile
+    /// settles an odd count by opening one more pipe, never one fewer, so
+    /// that it keeps the maze going.
     private func synthesize(
         for maze: Maze,
         at coord: HexCoord,
         symmetry: Symmetry,
         growth: Double? = nil,
+        eager: Bool = false,
         using generator: inout some RandomNumberGenerator
     ) -> PlacedTile? {
         guard let synthesis else { return nil }
@@ -268,7 +271,7 @@ public struct MazeGenerator: Sendable {
                 let spare = pocket.edges.flatMap { edge in
                     openSlots(maze, at: coord, edge: edge).map { Port(edge: edge, slot: $0) }
                 }.filter { !ports.contains($0) }
-                if let extra = spare.randomElement(using: &generator), sent.isEmpty || Bool.random(using: &generator) {
+                if let extra = spare.randomElement(using: &generator), sent.isEmpty || eager || Bool.random(using: &generator) {
                     ports.insert(extra)
                     grown.append(extra)
                 } else if let extra = sent.sorted().randomElement(using: &generator) {
@@ -286,7 +289,14 @@ public struct MazeGenerator: Sendable {
         // already counted out for a pocket are left alone if possible.
         if ports.count % 2 == 1 {
             let loose = grown.filter { !settled.contains($0.edge) }
-            if fixing.isEmpty, let extra = (loose.isEmpty ? grown : loose).randomElement(using: &generator) {
+            let more = eager && fixing.isEmpty
+                ? freeEdges.filter { !settled.contains($0) }.flatMap { edge in
+                    openSlots(maze, at: coord, edge: edge).map { Port(edge: edge, slot: $0) }
+                }.filter { !ports.contains($0) }.randomElement(using: &generator)
+                : nil
+            if let more {
+                ports.insert(more)
+            } else if fixing.isEmpty, let extra = (loose.isEmpty ? grown : loose).randomElement(using: &generator) {
                 ports.remove(extra)
             } else if let spare = freeEdges.shuffled(using: &generator).lazy
                 .flatMap({ edge in self.openSlots(maze, at: coord, edge: edge).map { Port(edge: edge, slot: $0) } })
@@ -442,22 +452,36 @@ public struct MazeGenerator: Sendable {
     ) -> Maze? {
         guard maze.contains(coord), maze.cells[coord] == nil else { return nil }
 
+        // Growth is also how much of the space the maze should fill before
+        // it closes up. Until then a tile that would leave no pipe hanging
+        // is kept back, and used only if nothing else fits.
+        let hasRoom = synthesis.map { Double(maze.cells.count) < $0.growth * Double(maze.cellCount) } ?? false
+        var closing: Maze?
+
         for option in matching(maze, at: coord).shuffled(using: &generator) {
             guard let next = maze.placing(option, at: coord, symmetry: symmetry) else { continue }
             if !strandsNeighbour(next, placedAt: coord, symmetry: symmetry, using: &generator) {
-                return next
+                guard hasRoom, next.openCells.isEmpty else { return next }
+                closing = closing ?? next
             }
         }
-        guard synthesis != nil else { return nil }
-        for _ in 0..<6 {
-            guard let made = synthesize(for: maze, at: coord, symmetry: symmetry, using: &generator),
+        guard synthesis != nil else { return closing }
+        for attempt in 0..<6 {
+            // If the first few made-up tiles would all close the maze, the
+            // rest open a pipe on every edge they can.
+            let pressing = closing != nil && attempt > 1
+            guard let made = synthesize(
+                for: maze, at: coord, symmetry: symmetry, growth: pressing ? 1 : nil, eager: pressing,
+                using: &generator
+            ),
                   let next = maze.placing(made, at: coord, symmetry: symmetry)
             else { continue }
             if !strandsNeighbour(next, placedAt: coord, symmetry: symmetry, using: &generator) {
-                return next
+                guard hasRoom, next.openCells.isEmpty else { return next }
+                closing = closing ?? next
             }
         }
-        return nil
+        return closing
     }
 
     // MARK: Growing
