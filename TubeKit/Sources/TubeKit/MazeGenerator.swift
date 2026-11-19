@@ -286,8 +286,13 @@ public struct MazeGenerator: Sendable {
             Set([port] + fixing.map { $0.apply(to: port, portsPerEdge: count) })
         }
         var grown: [Port] = []
+        // A port that is its own reflection, in a cell on a mirror line,
+        // is never opened by choice: see `startsRunAlongMirror`.
+        let avoidsOwnImage = !fixing.isEmpty && maze.endCount == 0
         func open(_ port: Port) {
-            for image in images(of: port) where ports.insert(image).inserted {
+            let all = images(of: port)
+            if avoidsOwnImage, all.count == 1 { return }
+            for image in all where ports.insert(image).inserted {
                 grown.append(image)
             }
         }
@@ -467,6 +472,24 @@ public struct MazeGenerator: Sendable {
         return false
     }
 
+    /// Whether the tile at `coord` uses a port that is its own reflection.
+    ///
+    /// In a maze kept symmetric by a mirror, a cell on the mirror line has
+    /// a tile that is its own reflection. Its pipes pair off with their
+    /// reflections, except at a port that sits on the line itself, which an
+    /// edge has when its number of ports is odd. A tile can only use such
+    /// ports two at a time, so one in use forces another in the next cell
+    /// along the line, and so on to the outline, where there is none to be
+    /// had. Only a goal or an opening on the line could end the run.
+    private func startsRunAlongMirror(_ maze: Maze, at coord: HexCoord, symmetry: Symmetry) -> Bool {
+        guard symmetry == .mirror, maze.endCount == 0, let placed = maze.cells[coord] else { return false }
+        let flips = stabilizer(maze, of: coord, symmetry: symmetry).filter(\.mirrored)
+        guard !flips.isEmpty else { return false }
+        return placed.oriented.occupiedPorts.contains { port in
+            flips.contains { $0.apply(to: port, portsPerEdge: maze.portsPerEdge) == port }
+        }
+    }
+
     /// Whether placing at `coord` left any neighbouring open cell unfillable.
     private func strandsNeighbour(
         _ next: Maze,
@@ -474,6 +497,7 @@ public struct MazeGenerator: Sendable {
         symmetry: Symmetry,
         using generator: inout some RandomNumberGenerator
     ) -> Bool {
+        if startsRunAlongMirror(next, at: coord, symmetry: symmetry) { return true }
         let open = Set(next.openCells)
         let around = Set(next.images(of: coord, symmetry: symmetry).flatMap { target in
             next.edges(at: target).map { next.tiling.neighbour(of: target, across: $0).cell }

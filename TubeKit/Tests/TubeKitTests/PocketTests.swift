@@ -142,3 +142,30 @@ import Testing
         #expect(low * 3 < high * 2, "\(low) tiles at low spread, \(high) at high")
     }
 }
+
+/// A mirrored maze keeps its pipes off the ports that sit on the mirror line.
+@Suite struct MirrorLineTests {
+    @Test(arguments: Tiling.allCases.filter { $0.symmetries.contains(.mirror) }, [3, 5])
+    func noPipeRunsAlongTheMirrorLine(tiling: Tiling, ports: Int) {
+        // With an odd number of ports, the middle port of an edge that lies
+        // across the line is its own reflection. A pipe through one would
+        // have to carry on from cell to cell along the line and has nowhere
+        // to stop, so mazes that started one sealed badly or not at all.
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        var sealed = 0
+        let runs = 6
+        for seed in 0..<runs {
+            var maze = Maze(portsPerEdge: ports, radius: 2, tiling: tiling)
+            var random = SeededGenerator(seed: UInt64(seed))
+            if generator.fill(&maze, symmetry: .mirror, using: &random) { sealed += 1 }
+            for (coord, placed) in maze.cells {
+                let flips = tiling.stabilizer(of: coord, symmetry: .mirror)
+                for port in placed.oriented.occupiedPorts {
+                    let onLine = flips.contains { $0.apply(to: port, portsPerEdge: ports) == port }
+                    #expect(!onLine)
+                }
+            }
+        }
+        #expect(sealed == runs)
+    }
+}
