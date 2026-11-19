@@ -67,8 +67,14 @@ public struct MazeGenerator: Sendable {
     private let goalOptionsByShape: [TileShape: [PlacedTile]]
     /// Nil restricts the maze to library tiles only.
     public var synthesis: Synthesis?
+    /// Whether a cell is first offered the tiles the maze already has, the
+    /// most used first, before any other. A maze grown this way leans on a
+    /// few tiles turned and flipped, and brings in a new one only where
+    /// none of those fits.
+    public var prefersReuse: Bool
 
-    public init(tiles: [Tile], synthesis: Synthesis? = Synthesis()) {
+    public init(tiles: [Tile], synthesis: Synthesis? = Synthesis(), prefersReuse: Bool = false) {
+        self.prefersReuse = prefersReuse
         // Two shapes can have pipes between the same ports, so what has
         // been seen is kept by shape.
         var seen: [TileShape: Set<Set<Pipe>>] = [:]
@@ -123,6 +129,47 @@ public struct MazeGenerator: Sendable {
             }
             return true
         }
+    }
+
+    /// The tiles already in the maze that could go in `coord`, each way
+    /// they fit, the most used first. Made-up tiles count like any other:
+    /// once one is in the maze it can be used again.
+    private func reusable(
+        _ maze: Maze, at coord: HexCoord, using generator: inout some RandomNumberGenerator
+    ) -> [PlacedTile] {
+        let edges = maze.edges(at: coord)
+        let required = edges.map { maze.requirement(at: coord, edge: $0) }
+        let allowed = edges.map { maze.allowedValue(at: coord, edge: $0) }
+        let shape = maze.tiling.shape(of: coord)
+        // A goal takes a tile with one dead end, and no other cell does.
+        let ends = maze.goals.contains(coord) ? 1 : 0
+
+        var uses: [Tile.ID: Int] = [:]
+        var found: [Tile.ID: PlacedTile] = [:]
+        for coord in maze.cells.keys.sorted() {
+            guard let placed = maze.cells[coord], placed.source.shape == shape else { continue }
+            uses[placed.source.id, default: 0] += 1
+            found[placed.source.id] = found[placed.source.id] ?? placed
+        }
+        // Shuffled first, so tiles used equally often come in no set order.
+        let ranked = found.keys.sorted { $0.uuidString < $1.uuidString }.shuffled(using: &generator)
+            .sorted { (uses[$0] ?? 0) > (uses[$1] ?? 0) }
+
+        var result: [PlacedTile] = []
+        for id in ranked {
+            guard let known = found[id], known.source.deadEnds.count == ends else { continue }
+            var seen: Set<Set<Pipe>> = []
+            for transform in shape.transforms.shuffled(using: &generator) {
+                let placed = PlacedTile(known.source, transform: transform, isGenerated: known.isGenerated)
+                guard seen.insert(Set(placed.oriented.pipes)).inserted else { continue }
+                let fits = edges.allSatisfy { edge in
+                    let value = placed.code.values[edge]
+                    return (required[edge] ?? value) == value && value & ~allowed[edge] == 0
+                }
+                if fits { result.append(placed) }
+            }
+        }
+        return result
     }
 
     /// The slots on a free edge of `coord` that a made-up tile may open a
@@ -458,7 +505,10 @@ public struct MazeGenerator: Sendable {
         let hasRoom = synthesis.map { Double(maze.cells.count) < $0.growth * Double(maze.cellCount) } ?? false
         var closing: Maze?
 
-        for option in matching(maze, at: coord).shuffled(using: &generator) {
+        // Tiles the maze already has come before the rest of the library
+        // when reuse is wanted.
+        let reused = prefersReuse ? reusable(maze, at: coord, using: &generator) : []
+        for option in reused + matching(maze, at: coord).shuffled(using: &generator) {
             guard let next = maze.placing(option, at: coord, symmetry: symmetry) else { continue }
             if !strandsNeighbour(next, placedAt: coord, symmetry: symmetry, using: &generator) {
                 guard hasRoom, next.openCells.isEmpty else { return next }

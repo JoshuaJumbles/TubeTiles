@@ -34,6 +34,9 @@ final class GeneratorModel {
     }
     /// Whether the generator may make up tiles the library does not have.
     var allowsGeneratedTiles = true
+    /// Whether a cell is first offered the tiles already in the maze, so a
+    /// few tiles come round again and again.
+    var prefersReuse = false
     /// How readily made-up tiles send out new pipes, 0 to 1.
     var growth = 0.5
     /// Colours each path so separate loops can be told apart.
@@ -236,6 +239,12 @@ final class GeneratorModel {
     var currentLibrary: TileLibrary { library.current }
     var libraries: [TileLibrary] { library.libraries }
     var libraryTileCount: Int { activeLibrary?.tiles.count ?? 0 }
+    /// How many different tiles the maze is made of, counting a tile turned
+    /// or flipped as the same tile.
+    var differentTileCount: Int {
+        BuildSheet(maze: maze, flippedIsSame: true).entries.count
+    }
+
     var generatedTileCount: Int { maze.cells.values.filter(\.isGenerated).count }
 
     /// The maze as a drawing to share. Path colours are included while they
@@ -279,7 +288,8 @@ final class GeneratorModel {
     private var generator: MazeGenerator {
         MazeGenerator(
             tiles: activeLibrary?.tiles ?? [],
-            synthesis: allowsGeneratedTiles ? synthesis : nil
+            synthesis: allowsGeneratedTiles ? synthesis : nil,
+            prefersReuse: prefersReuse
         )
     }
 

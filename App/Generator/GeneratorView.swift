@@ -391,6 +391,13 @@ private struct GeneratorPanel: View {
                         }
                     }
 
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("Reuse tiles where possible", isOn: $model.prefersReuse)
+                        Text("Each cell first tries the tiles already in the maze, the most used first, and takes a new one only when none fits. It applies to tiles placed from now on.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
                     if model.allowsGeneratedTiles {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Spread").font(.subheadline)
@@ -414,7 +421,7 @@ private struct GeneratorPanel: View {
                     Text("\u{201C}\(model.currentLibrary.name)\u{201D} has \(GeneratorModel.describe(model.currentLibrary)) and this maze has \(model.mazeDescription), so its tiles are not used here.")
                 }
                 if !model.maze.cells.isEmpty {
-                    Text("\(model.maze.cells.count - model.generatedTileCount) from the library, \(model.generatedTileCount) made up")
+                    Text("\(model.maze.cells.count - model.generatedTileCount) from the library, \(model.generatedTileCount) made up \u{00B7} \(model.differentTileCount) different")
                 }
             }
             .font(.footnote)
