@@ -162,6 +162,19 @@ enum SampleData {
             }
         }
 
+        // The smallest shape on its own.
+        let triangles = try? model.create(
+            name: "Triangles", note: "Triangles alone.", portsPerEdge: 3,
+            allowedKinds: [.bezier, .corner, .roomSmall, .endSmall, .endMedium], shapes: [.triangle]
+        )
+        for index in 0..<12 {
+            var tile = Tile(portsPerEdge: 3, shape: .triangle)
+            for _ in 0..<(1 + index % 3) {
+                tile.addRandomPipe(kinds: [.bezier, .bezier, .corner], using: &generator)
+            }
+            if !tile.pipes.isEmpty { try? model.save(tile, to: triangles?.id) }
+        }
+
         if let mixed { model.select(mixed.id) }
         try? model.deleteLibrary(id: placeholder)
         return model

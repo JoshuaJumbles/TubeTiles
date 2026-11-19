@@ -917,7 +917,7 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
             }
         }
         let library = TileLibrary(name: "Both", portsPerEdge: 3, shapes: tiling.shapes)
-        #expect(library.tilings == [.trihexagonal, .hexagonal])
+        #expect(library.tilings == [.trihexagonal, .hexagonal, .triangular])
     }
 
     @Test(arguments: [2, 3, 4])
@@ -1031,7 +1031,7 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
 
     @Test func oneLibraryLaysBothAndPlainSquares() {
         let library = TileLibrary(name: "Both", portsPerEdge: 3, shapes: [.square, .triangle])
-        #expect(library.tilings == [.elongatedTriangular, .snubSquare, .square])
+        #expect(library.tilings == [.elongatedTriangular, .snubSquare, .square, .triangular])
         #expect(Tiling.elongatedTriangular.shapes == Tiling.snubSquare.shapes)
     }
 
@@ -1194,11 +1194,12 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
         }
     }
 
-    @Test func aLibraryOfAllThreeShapesLaysSixTilings() {
+    @Test func aLibraryOfAllThreeShapesLaysSevenTilings() {
         let library = TileLibrary(name: "Three", portsPerEdge: 3, shapes: [.hexagon, .square, .triangle])
         #expect(library.tilings.first == .rhombitrihexagonal)
         #expect(Set(library.tilings) == [
             .rhombitrihexagonal, .trihexagonal, .elongatedTriangular, .snubSquare, .hexagonal, .square,
+            .triangular,
         ])
     }
 
@@ -1272,6 +1273,100 @@ private func close(_ a: Point, _ b: Point) -> Bool { a.distance(to: b) < 1e-9 }
             // A goal in a hexagon, one in a square and one in a triangle
             // would be three ends; two of them make one path.
             maze.setGoals([.origin, HexCoord(q: 0, r: 4)])
+            var random = SeededGenerator(seed: UInt64(seed))
+            if generator.fill(&maze, symmetry: .none, using: &random) {
+                sealed += 1
+                #expect(maze.paths.paths.filter { !$0.isClosed }.count == 1)
+            }
+            for spot in portSpots(of: maze) { #expect(mask.contains(spot, inset: 0)) }
+        }
+        #expect(sealed >= 3)
+    }
+}
+
+/// Triangles alone.
+@Suite struct TriangularTests {
+    private let tiling = Tiling.triangular
+
+    private func portSpots(of maze: Maze) -> [Point] {
+        maze.cells.flatMap { coord, placed in
+            placed.oriented.occupiedPorts.map {
+                maze.frame(of: coord).place(TileShape.triangle.position(of: $0, portsPerEdge: maze.portsPerEdge))
+            }
+        }
+    }
+
+    @Test func trianglesPointDownAndUpByTurns() {
+        #expect(tiling.shapes == [.triangle])
+        #expect(Tiling(shape: .triangle) == .triangular)
+        #expect(tiling.cells(radius: 0) == [.origin])
+        // The middle triangle, the three round it, and the six beyond.
+        #expect(tiling.cells(radius: 1).count == 10)
+        for cell in tiling.cells(radius: 3) {
+            let turned = tiling.turn(of: cell)
+            for edge in 0..<3 {
+                let other = tiling.neighbour(of: cell, across: edge).cell
+                #expect(abs(abs(tiling.turn(of: other) - turned) - .pi) < 1e-12)
+            }
+        }
+        #expect(TileLibrary(name: "T", portsPerEdge: 3, shapes: [.triangle]).tilings == [.triangular])
+    }
+
+    @Test(arguments: [2, 3, 4])
+    func mazesSeal(ports: Int) throws {
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        var sealed = 0
+        let runs = 6
+        for seed in 0..<runs {
+            var maze = Maze(portsPerEdge: ports, radius: 3, tiling: tiling)
+            #expect(maze.cellCount == 64)
+            var random = SeededGenerator(seed: UInt64(seed))
+            if generator.fill(&maze, symmetry: .none, using: &random) { sealed += 1 }
+            for (coord, placed) in maze.cells {
+                #expect(placed.source.shape == .triangle)
+                #expect(maze.fits(placed.code, at: coord))
+                #expect(!CoverageMap(tile: placed.source).hasViolation)
+            }
+            guard maze.isSealed else { continue }
+            LoopMerger(generator: generator).mergeAll(&maze, using: &random)
+            #expect(maze.isSealed)
+            #expect(maze.weave().conflicts == 0)
+            let loaded = try JSONDecoder().decode(Maze.self, from: JSONEncoder().encode(maze))
+            #expect(loaded == maze)
+            #expect(MazeSVG.render(maze).contains("<polygon"))
+        }
+        #expect(sealed >= runs - 1)
+    }
+
+    @Test(arguments: [Symmetry.mirror, .third])
+    func mazesKeepTheirSymmetry(symmetry: Symmetry) {
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        let moves = tiling.transforms(for: symmetry).dropFirst()
+        #expect(tiling.stabilizer(of: .origin, symmetry: symmetry).count == moves.count)
+        for seed in 0..<4 {
+            var maze = Maze(portsPerEdge: 3, radius: 3, tiling: tiling)
+            var random = SeededGenerator(seed: UInt64(seed))
+            generator.fill(&maze, symmetry: symmetry, using: &random)
+            #expect(maze.cells.count > 2)
+            let spots = portSpots(of: maze)
+            for move in moves {
+                for spot in spots {
+                    let image = move.apply(to: spot)
+                    #expect(spots.contains { $0.distance(to: image) < 1e-9 })
+                }
+            }
+        }
+    }
+
+    @Test func aBoundedMazeStaysInsideAndGoalsWork() {
+        let mask = Mask.rectangle(center: Point(x: 0.3, y: -0.2), width: 7, height: 5)
+        let radius = Maze.radius(covering: mask, limit: 12, tiling: tiling)
+        let generator = MazeGenerator(tiles: [], synthesis: .init(growth: 0.6))
+        var sealed = 0
+        for seed in 0..<4 {
+            var maze = Maze(portsPerEdge: 3, radius: radius, mask: mask, tiling: tiling)
+            #expect(maze.cellCount > 15)
+            maze.setGoals([.origin, HexCoord(q: 1, r: 1)])
             var random = SeededGenerator(seed: UInt64(seed))
             if generator.fill(&maze, symmetry: .none, using: &random) {
                 sealed += 1
