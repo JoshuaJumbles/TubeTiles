@@ -357,6 +357,73 @@ final class EditorModel {
         }
     }
 
+    // MARK: Saving every combination
+
+    /// What saving every combination of the tile's pipes would add, shown
+    /// for a yes or no before anything is saved.
+    struct CombinationOffer: Identifiable {
+        let id = UUID()
+        /// The new tiles, not counting the one on the canvas.
+        let tiles: [Tile]
+        /// How many different combinations there are, and how many of them
+        /// the library already has.
+        let distinct: Int
+        let alreadyThere: Int
+        /// How many pipes the combinations are drawn from.
+        let pipeCount: Int
+        /// Whether the tile on the canvas is new to the library as well.
+        let addsCanvasTile: Bool
+
+        var addedCount: Int { tiles.count + (addsCanvasTile ? 1 : 0) }
+    }
+
+    /// Set while the editor is asking whether to add the combinations.
+    var combinationOffer: CombinationOffer?
+
+    /// Combinations keep two or more pipes and leave at least one out, so
+    /// a tile needs three pipes to have any.
+    var hasCombinations: Bool { tile.pipes.count >= 3 }
+
+    /// Works out every combination of the tile's pipes and asks before
+    /// adding them. Nothing is saved yet.
+    func offerCombinations() {
+        let count = tile.pipes.count
+        guard count <= TileLibrary.combinationPipeLimit else {
+            message = "\(count) pipes make too many combinations. \(TileLibrary.combinationPipeLimit) is the most."
+            return
+        }
+        guard hasCombinations, let found = library.current.combinations(of: tile) else {
+            message = "Add at least three pipes first."
+            return
+        }
+        guard !found.tiles.isEmpty else {
+            // Nothing new but perhaps the tile itself.
+            save()
+            message = "Every combination is already in the library."
+            return
+        }
+        combinationOffer = CombinationOffer(
+            tiles: found.tiles, distinct: found.distinct, alreadyThere: found.alreadyThere,
+            pipeCount: count, addsCanvasTile: !isSaved
+        )
+    }
+
+    /// Saves the tile on the canvas and the combinations that were offered.
+    func saveCombinations(_ offer: CombinationOffer) {
+        combinationOffer = nil
+        do {
+            try library.save(tile)
+            try library.saveAll(offer.tiles)
+            var parts = ["Added \(offer.addedCount) tiles to \u{201C}\(library.current.name)\u{201D}."]
+            if offer.alreadyThere > 0 {
+                parts.append(offer.alreadyThere == 1 ? "1 was already there." : "\(offer.alreadyThere) were already there.")
+            }
+            message = parts.joined(separator: " ")
+        } catch {
+            message = "Could not save: \(error.localizedDescription)"
+        }
+    }
+
     // MARK: Internals
 
     /// The kinds random pipes are drawn from: whatever the library allows

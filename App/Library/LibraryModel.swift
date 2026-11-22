@@ -169,6 +169,15 @@ final class LibraryModel {
         try commit(library)
     }
 
+    /// Adds several tiles at once, as one change to the library.
+    func saveAll(_ tiles: [Tile], to id: UUID? = nil) throws {
+        guard var library = library(id: id ?? currentID) else { return }
+        for tile in tiles where tile.portsPerEdge == library.portsPerEdge && library.shapes.contains(tile.shape) {
+            library.save(tile)
+        }
+        try commit(library)
+    }
+
     func delete(_ tile: Tile, from id: UUID? = nil) throws {
         guard var library = library(id: id ?? currentID) else { return }
         library.remove(id: tile.id)

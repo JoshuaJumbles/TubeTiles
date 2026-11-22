@@ -326,6 +326,67 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
         return nil
     }
 
+    // MARK: Every combination of a tile's pipes
+
+    /// The most pipes a tile can have for its combinations to be worked
+    /// out. The number of combinations doubles with each pipe, and twelve
+    /// pipes already make over four thousand.
+    public static let combinationPipeLimit = 12
+
+    /// The tiles made by leaving some of a tile's pipes out, that this
+    /// library does not already have.
+    public struct Combinations: Sendable {
+        /// The new tiles, fewest pipes first, each with an identity of its
+        /// own.
+        public let tiles: [Tile]
+        /// How many different tiles the combinations come to, counting one
+        /// that is another turned or flipped only once.
+        public let distinct: Int
+        /// How many of those the library already has.
+        public let alreadyThere: Int
+    }
+
+    /// Every tile that keeps at least `minimumPipes` of `tile`'s pipes and
+    /// leaves at least one out. Leaving pipes out of a sound tile always
+    /// leaves a sound tile.
+    ///
+    /// A combination counts as already here if a stored tile draws the same
+    /// pipes, as it stands or turned or flipped. The stored tile with the
+    /// same `id` as `tile` is not counted: saving `tile` replaces it. `tile`
+    /// itself, with every pipe, is not among the results.
+    ///
+    /// Nil if the tile is not of this library's shapes and port count, or
+    /// has more pipes than `combinationPipeLimit`.
+    public func combinations(of tile: Tile, minimumPipes: Int = 2) -> Combinations? {
+        let pipes = tile.pipes
+        guard tile.portsPerEdge == portsPerEdge, shapes.contains(tile.shape),
+              pipes.count <= Self.combinationPipeLimit
+        else { return nil }
+        let known = Set(tiles.filter { $0.shape == tile.shape && $0.id != tile.id }.map(\.arrangementKey))
+        var seen: Set<[Int]> = []
+        var fresh: [Tile] = []
+        var alreadyThere = 0
+        // Every way of keeping some pipes and not others, but not all.
+        let all = (1 << pipes.count) - 1
+        for mask in 1..<max(all, 1) where mask.nonzeroBitCount >= minimumPipes {
+            // Kept in the order they were drawn, so they stack as before.
+            let kept = pipes.indices.filter { mask & (1 << $0) != 0 }.map { pipes[$0] }
+            let made = Tile(portsPerEdge: portsPerEdge, gauge: gauge, shape: tile.shape, uncheckedPipes: kept)
+            let key = made.arrangementKey
+            guard seen.insert(key).inserted else { continue }
+            if known.contains(key) {
+                alreadyThere += 1
+            } else {
+                fresh.append(made)
+            }
+        }
+        // A stable sort, so tiles with as many pipes stay in the order made.
+        let ordered = fresh.enumerated().sorted {
+            ($0.element.pipes.count, $0.offset) < ($1.element.pipes.count, $1.offset)
+        }.map(\.element)
+        return Combinations(tiles: ordered, distinct: seen.count, alreadyThere: alreadyThere)
+    }
+
     // MARK: Views of the tiles
 
     /// Tiles grouped by exact edge code, as drawn.
@@ -350,5 +411,24 @@ public struct TileLibrary: Hashable, Sendable, Codable, Identifiable {
             }
         }
         return counts
+    }
+}
+
+extension Tile {
+    /// The tile's shape and pipes as numbers that come out the same however
+    /// the tile is turned or flipped and whatever order its pipes are in.
+    /// Two tiles with the same key draw the same thing.
+    var arrangementKey: [Int] {
+        let kinds = PipeKind.allCases
+        var best: [Int]?
+        for transform in shape.transforms {
+            let key = transformed(by: transform).pipes.map { pipe -> [Int] in
+                // A pipe is the same pipe from either end.
+                let (a, b) = pipe.a < pipe.b ? (pipe.a, pipe.b) : (pipe.b, pipe.a)
+                return [kinds.firstIndex(of: pipe.kind) ?? 0, a.edge, a.slot, b.edge, b.slot]
+            }.sorted { $0.lexicographicallyPrecedes($1) }.flatMap { $0 }
+            if best == nil || key.lexicographicallyPrecedes(best!) { best = key }
+        }
+        return [shape.edgeCount] + (best ?? [])
     }
 }
