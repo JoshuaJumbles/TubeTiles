@@ -177,7 +177,17 @@ struct EditorView: View {
 /// Controls for the editor: edit actions, library and saving. The tool in
 /// use is chosen from the button on the canvas.
 private struct EditorPanel: View {
-    var model: EditorModel
+    @Bindable var model: EditorModel
+
+    /// What the combinations on offer are, in a sentence or two.
+    private static func describe(_ offer: EditorModel.CombinationOffer) -> String {
+        var text = "\(offer.distinct) different combinations of two or more of these \(offer.pipeCount) pipes"
+        if offer.alreadyThere > 0 {
+            text += ", \(offer.alreadyThere) of them already in the library"
+        }
+        text += offer.addsCanvasTile ? ". The tile as drawn is added too." : ". The tile as drawn is updated."
+        return text + " Tiles with a single pipe are left out."
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -254,16 +264,42 @@ private struct EditorPanel: View {
                     .buttonStyle(.borderedProminent)
                     .tint(TilePalette.positive)
                 } else {
-                    Button { model.save() } label: {
+                    // A tap saves the tile. Holding the button offers to
+                    // save every combination of its pipes as well.
+                    Menu {
+                        Button { model.offerCombinations() } label: {
+                            Label("Save every combination\u{2026}", systemImage: "square.stack.3d.up")
+                        }
+                        .disabled(!model.hasCombinations)
+                    } label: {
                         Label(model.isSaved ? "Update" : "Save", systemImage: "square.and.arrow.down")
                             .frame(maxWidth: .infinity)
+                    } primaryAction: {
+                        model.save()
                     }
+                    .menuStyle(.button)
                     .buttonStyle(.borderedProminent)
                     .disabled(model.tile.pipes.isEmpty)
+                    .accessibilityHint("Hold for more ways to save")
                 }
             }
+            .confirmationDialog(
+                model.combinationOffer.map { "Add \($0.addedCount) tiles to \u{201C}\(model.libraryName)\u{201D}?" } ?? "",
+                isPresented: Binding(
+                    get: { model.combinationOffer != nil }, set: { if !$0 { model.combinationOffer = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: model.combinationOffer
+            ) { offer in
+                Button("Add \(offer.addedCount) tiles") { model.saveCombinations(offer) }
+                Button("Cancel", role: .cancel) {}
+            } message: { offer in
+                Text(Self.describe(offer))
+            }
 
-            Text("^[\(model.savedTileCount) tile](inflect: true) in \u{201C}\(model.libraryName)\u{201D}. New libraries are made on the Library tab.")
+            Text(model.hasCombinations
+                ? "^[\(model.savedTileCount) tile](inflect: true) in \u{201C}\(model.libraryName)\u{201D}. Hold \(model.isSaved ? "Update" : "Save") for every combination."
+                : "^[\(model.savedTileCount) tile](inflect: true) in \u{201C}\(model.libraryName)\u{201D}. New libraries are made on the Library tab.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
